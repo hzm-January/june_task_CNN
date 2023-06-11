@@ -7,12 +7,12 @@ from loader.bev_road.openlane_data import OpenLane_dataset_with_offset,OpenLane_
 from models.model.single_camera_bev import BEV_LaneDet
 
 ''' data split '''
-train_gt_paths = '/dataset/openlane/lane3d_1000/training'
-train_image_paths = '/dataset/openlane/images/training'
-val_gt_paths = '/dataset/openlane/lane3d_1000/validation'
-val_image_paths = '/dataset/openlane/images/validation'
+train_gt_paths = '/home/houzm/datasets/openlane/lane3d_1000/training'
+train_image_paths = '/home/houzm/datasets/openlane/images/training'
+val_gt_paths = '/home/houzm/datasets/openlane/lane3d_1000/validation'
+val_image_paths = '/home/houzm/datasets/openlane/images/validation'
 
-model_save_path = "/dataset/model/openlane"
+model_save_path = "/home/houzm/houzm/02_code/bev_lane_det-cnn/checkpoints/openlane"
 
 input_shape = (576,1024)
 output_2d_shape = (144,256)
@@ -68,6 +68,16 @@ def train_dataset():
                     A.Normalize(),
                     ToTensorV2()
                     ])
+    '''
+        train_image_paths: 数据集图像路径
+        train_gt_paths: 数据集json标注文件路径
+        x_range: bev size w
+        y_range: bev size h
+        meter_per_pixel: grid size
+        train_trans: 数据增强 Data Augmentation
+        output_2d_shape: 输出图像尺寸
+        virtual camera config: 虚拟相机设置
+    '''
     train_data = OpenLane_dataset_with_offset(train_image_paths, train_gt_paths, 
                                               x_range, y_range, meter_per_pixel, 
                                               train_trans, output_2d_shape, vc_config)

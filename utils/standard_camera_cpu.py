@@ -22,13 +22,13 @@ class Standard_camera:
         :param cameraB_distortion: distortion parameters of current camera
         :param imageB_shape: image shape of current camera
         '''
-        ''' cameraA parameter '''
+        ''' cameraA parameter - virtual camera '''
         self.cameraA_intrinsic = cameraA_intrinsic
         self.cameraA2ego_matrix = cameraA2ego_matrix
         self.cameraA_distortion = cameraA_distortion
         self.imageA_shape = imageA_shape
 
-        ''' cameraB parameter '''
+        ''' cameraB parameter - current camera '''
         self.cameraB_intrinsic = cameraB_intrinsic
         self.cameraB2ego_matrix = cameraB2ego_matrix
         self.cameraB_distortion = cameraB_distortion

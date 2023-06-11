@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/mnt/ve_perception/wangruihao/code/BEV-LaneDet')
+sys.path.append('/home/houzm/houzm/02_code/bev_lane_det-cnn')
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
@@ -10,7 +10,8 @@ from models.loss import IoULoss, NDPushPullLoss
 from utils.config_util import load_config_module
 from sklearn.metrics import f1_score
 import numpy as np
-
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "4,5,6,7"
 
 class Combine_Model_and_Loss(torch.nn.Module):
     def __init__(self, model):
@@ -53,9 +54,9 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
     model.train()
     losses_avg = {}
     '''image,image_gt_segment,image_gt_instance,ipm_gt_segment,ipm_gt_instance'''
-    for idx, (
+    for idx, (  # image, ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float(), image_gt_segment.float(), image_gt_instance.float()
     input_data, gt_seg_data, gt_emb_data, offset_y_data, z_data, image_gt_segment, image_gt_instance) in enumerate(
-            dataset):
+            dataset): #TODO: dataset __getitem__是否是在这里调用？
         # loss_back, loss_iter = forward_on_cuda(gpu, gt_data, input_data, loss, models)
         input_data = input_data.cuda()
         gt_seg_data = gt_seg_data.cuda()
@@ -64,7 +65,7 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
         z_data = z_data.cuda()
         image_gt_segment = image_gt_segment.cuda()
         image_gt_instance = image_gt_instance.cuda()
-        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z = model(input_data,
+        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z = model(input_data, #TODO: input_data 是什么
                                                                                 gt_seg_data,
                                                                                 gt_emb_data,
                                                                                 offset_y_data, z_data,
@@ -138,4 +139,5 @@ def worker_function(config_file, gpu_id, checkpoint_path=None):
 if __name__ == '__main__':
     import warnings
     warnings.filterwarnings("ignore")
+
     worker_function('./openlane_config.py', gpu_id=[4, 5, 6, 7])
