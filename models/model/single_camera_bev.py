@@ -1,6 +1,7 @@
 import torch
 import torchvision as tv
 from torch import nn
+from utils.homograph_util import homograph
 
 
 def naive_init_module(mod):
@@ -279,6 +280,7 @@ class Residual(nn.Module):
         out += identity
         return self.relu(out)
 
+
 # model
 # ResNet34 骨干网络 (self.bb)，在 ImageNet 上进行预训练。
 # 一个下采样层 (self.down)，用于减小特征图的空间维度。
@@ -286,12 +288,22 @@ class Residual(nn.Module):
 # 车道线检测头 (self.lane_head)，以 BEV 表示作为输入，输出表示检测到的车道线的张量。
 # 可选的 2D 图像车道线检测头 (self.lane_head_2d)，以 ResNet 骨干网络的输出作为输入，输出表示原始图像中检测到的车道线的张量。
 class BEV_LaneDet(nn.Module):  # BEV-LaneDet
-    def __init__(self, bev_shape, output_2d_shape, train=True):
+    def __init__(self, bev_shape, input_shape, output_2d_shape, train=True):
         super(BEV_LaneDet, self).__init__()
-        ''' HomograpNet '''
-        # self.hnet =
+
         ''' backbone '''
-        self.bb = nn.Sequential(*list(tv.models.resnet34(pretrained=True).children())[:-2])
+        self.bb = nn.Sequential(*list(tv.models.resnet18(pretrained=True).children())[:-2])
+
+        ''' HomograpNet '''
+        self.hnet = nn.Sequential(
+            nn.Flatten(),
+            # nn.Linear(in_features=1024*576*3, out_features=512, bias=True),
+            nn.Linear(in_features=1280 * 1920 * 3, out_features=16, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=16, out_features=8, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=8, out_features=9, bias=True)
+        )
 
         self.down = naive_init_module(
             Residual(
@@ -308,19 +320,22 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
         )
 
         self.s32transformer = FCTransform_((512, 18, 32), (256, 25, 5))
-        self.s64transformer = FCTransform_((1024, 9, 16), (256, 25, 5))  
+        self.s64transformer = FCTransform_((1024, 9, 16), (256, 25, 5))
         self.lane_head = LaneHeadResidual_Instance_with_offset_z(bev_shape, input_channel=512)
         self.is_train = train
         if self.is_train:
             self.lane_head_2d = LaneHeadResidual_Instance(output_2d_shape, input_channel=512)
 
-    def forward(self, img):  # img (8,3,576,1024)
+    def forward(self, img, img_gt, configs):  # img (8,3,576,1024) -> img (16,1280,1920,3)
+        homograph_matrix = self.hnet(img.to(torch.float32))
+        # 单应变换
+        img, image_gt_instance, image_gt_segment = homograph(img, img_gt, homograph_matrix, configs)
         img_s32 = self.bb(img)  # img_s32 (8,512,18,32)
         img_s64 = self.down(img_s32)  # img_s64 (8,1024,9,16)
         bev_32 = self.s32transformer(img_s32)  # bev_32 (8,256,25,5)
         bev_64 = self.s64transformer(img_s64)  # bev_64 (8,256,25,5)
         bev = torch.cat([bev_64, bev_32], dim=1)  # bev (8,512,25,5)
         if self.is_train:
-            return self.lane_head(bev), self.lane_head_2d(img_s32)
+            return image_gt_instance, image_gt_segment, self.lane_head(bev), self.lane_head_2d(img_s32)
         else:
-            return self.lane_head(bev)
+            return image_gt_instance, image_gt_segment, self.lane_head(bev)

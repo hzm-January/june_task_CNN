@@ -60,16 +60,19 @@ class Standard_camera:
     def get_project_matrix(self, base_points, height=0):
         """
         :param base_points: selected four points on image of Virtual camera
+                  According to the code get_matrix, I think the four points are on image of Current Camera.
         :return: homography matrix
         """
         ''' base_points project to ego_points_B '''
+        # 将 current camera 中的点 像素坐标系 -> 自车坐标系
         ego_points_B = self.imageview2ego(base_points.T, self.cameraB_intrinsic, np.linalg.inv(self.cameraB2ego_matrix),
                                           height)
-
-        ''' '''
+        # 将 current camera 中的点 自车坐标系 -> virtual camera 相机坐标系
+        # TODO: currnet camera 和 virtual camera 自车坐标系一样吗？按照这里的代码逻辑应该是一样的。
         ego2cameraA_matrix = np.linalg.inv(self.cameraA2ego_matrix)
         cameraB_points_in_A = np.dot(ego2cameraA_matrix[:3, :3], ego_points_B) + \
                               ego2cameraA_matrix[:3, 3].reshape(3, 1)
+        # 将 virtual camera 中的点 相机坐标系 -> 像素坐标系
         image_points_B_in_A_ = self.cameraA_intrinsic @ cameraB_points_in_A
         image_points_B_in_A = image_points_B_in_A_ / image_points_B_in_A_[2]
 

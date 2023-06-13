@@ -47,16 +47,17 @@ def image2ego_byheight(image_points, camera_intrinsic, camera2ego_matrix, height
 
 def ego2image(ego_points, camera_intrinsic, camera2ego_matrix):
     """
-    :param ego_points:  3*n
-    :param camera_intrinsic: 3*3
-    :param camera2ego_matrix:  4*4
-    :return:
+        自车坐标 -> 像素坐标
+        :param ego_points:  3*n
+        :param camera_intrinsic: 3*3
+        :param camera2ego_matrix:  4*4
+        :return:
     """
     ego2camera_matrix = np.linalg.inv(camera2ego_matrix)
     camera_points = np.dot(ego2camera_matrix[:3, :3], ego_points) + \
-                    ego2camera_matrix[:3, 3].reshape(3, 1)
-    image_points_ = camera_intrinsic @ camera_points
-    image_points = image_points_ / image_points_[2]
+                    ego2camera_matrix[:3, 3].reshape(3, 1)  # ego -> camera
+    image_points_ = camera_intrinsic @ camera_points  # camera -> image
+    image_points = image_points_ / image_points_[2]  # TODO: 这一步操作是做什么
     return image_points
 
 

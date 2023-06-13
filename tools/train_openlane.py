@@ -24,11 +24,17 @@ class Combine_Model_and_Loss(torch.nn.Module):
         self.bce_loss = nn.BCELoss()
         # self.sigmoid = nn.Sigmoid()
 
-    def forward(self, inputs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None, image_gt_segment=None,
-                image_gt_instance=None, train=True):
-        res = self.model(inputs)
-        pred, emb, offset_y, z = res[0]
-        pred_2d, emb_2d = res[1]
+    # dataset __getitem__ return (image, ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float(), image_gt_segment.float(), image_gt_instance.float())
+    def forward(self, images, images_gt, configs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None, train=True):
+        # images = images.permute(0,3,1,2)
+        res = self.model(images, images_gt, configs)
+        # res[0]: images after homograph projection
+        # res[1]: images_gt after homograph projection
+        # images_gt: 用于 2d网络 监督信号
+        image_gt_instance = res[0].cuda()
+        image_gt_segment = res[1].cuda()
+        pred, emb, offset_y, z = res[2]
+        pred_2d, emb_2d = res[3]
         if train:
             ## 3d
             loss_seg = self.bce(pred, gt_seg) + self.iou_loss(torch.sigmoid(pred), gt_seg)
@@ -55,22 +61,28 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
     losses_avg = {}
     '''image,image_gt_segment,image_gt_instance,ipm_gt_segment,ipm_gt_instance'''
     for idx, (  # image, ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float(), image_gt_segment.float(), image_gt_instance.float()
-    input_data, gt_seg_data, gt_emb_data, offset_y_data, z_data, image_gt_segment, image_gt_instance) in enumerate(
+    image, image_gt, gt_seg_data, gt_emb_data, offset_y_data, z_data) in enumerate(
             dataset): #TODO: dataset __getitem__是否是在这里调用？
         # loss_back, loss_iter = forward_on_cuda(gpu, gt_data, input_data, loss, models)
-        input_data = input_data.cuda()
+        image = image.cuda()
         gt_seg_data = gt_seg_data.cuda()
         gt_emb_data = gt_emb_data.cuda()
         offset_y_data = offset_y_data.cuda()
         z_data = z_data.cuda()
-        image_gt_segment = image_gt_segment.cuda()
-        image_gt_instance = image_gt_instance.cuda()
-        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z = model(input_data, #TODO: input_data 是什么
-                                                                                gt_seg_data,
-                                                                                gt_emb_data,
-                                                                                offset_y_data, z_data,
-                                                                                image_gt_segment,
-                                                                                image_gt_instance)
+        # image_gt_segment = image_gt_segment.cuda()
+        # image_gt_instance = image_gt_instance.cuda()
+        # prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z = model(input_data,
+        #                                                                         gt_seg_data,
+        #                                                                         gt_emb_data,
+        #                                                                         offset_y_data, z_data,
+        #                                                                         image_gt_segment,
+        #                                                                         image_gt_instance)
+        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z = model(image,
+                                                                               image_gt,
+                                                                               configs,
+                                                                               gt_seg_data,
+                                                                               gt_emb_data,
+                                                                               offset_y_data, z_data)
         loss_back_bev = loss_total_bev.mean()
         loss_back_2d = loss_total_2d.mean()
         loss_offset = loss_offset.mean()
@@ -140,4 +152,4 @@ if __name__ == '__main__':
     import warnings
     warnings.filterwarnings("ignore")
 
-    worker_function('./openlane_config.py', gpu_id=[4, 5, 6, 7])
+    worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/openlane_config.py', gpu_id=[4, 5, 6, 7])
