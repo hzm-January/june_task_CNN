@@ -1,5 +1,5 @@
 import sys
-sys.path.append('/workspace/bev_lane_det')# 添加模块搜索路径
+sys.path.append('/home/houzm/houzm/02_code/bev_lane_det-cnn')# 添加模块搜索路径
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR # 导入余弦退火学习率调度器
 from torch.utils.data import DataLoader  # 导入数据加载器
@@ -10,6 +10,8 @@ from models.loss import IoULoss, NDPushPullLoss  # 导入自定义的损失函�
 from utils.config_util import load_config_module # 导入加载配置文件的函数
 from sklearn.metrics import f1_score # 导入F1分数计算函数
 import numpy as np
+import os
+os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 
 # 定义一个继承自nn.Module的类，将模型和损失函数组合在一起
 class Combine_Model_and_Loss(torch.nn.Module):
@@ -23,11 +25,12 @@ class Combine_Model_and_Loss(torch.nn.Module):
         self.bce_loss = nn.BCELoss() # 定义二元交叉熵损失函数
         # self.sigmoid = nn.Sigmoid()
     # 正向传播函数
-    def forward(self, inputs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None, image_gt_segment=None,
-                image_gt_instance=None, train=True):
-        res = self.model(inputs) # 调用模型进行预测
-        pred, emb, offset_y, z = res[0] # 获取预测结果
-        pred_2d, emb_2d = res[1]
+    def forward(self, inputs, images_gt, configs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None, train=True):
+        res = self.model(inputs, images_gt, configs) # 调用模型进行预测
+        image_gt_instance = res[0]
+        image_gt_segment = res[1]
+        pred, emb, offset_y, z = res[2]
+        pred_2d, emb_2d = res[3]
         if train:
             ## 3d
             loss_seg = self.bce(pred, gt_seg) + self.iou_loss(torch.sigmoid(pred), gt_seg)  # 计算BEV分割损失和IoU损失
@@ -54,7 +57,7 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
     losses_avg = {}
     '''image,image_gt_segment,image_gt_instance,ipm_gt_segment,ipm_gt_instance'''
     for idx, (
-    input_data, gt_seg_data, gt_emb_data, offset_y_data, z_data, image_gt_segment, image_gt_instance) in enumerate(
+    input_data, image_gt, gt_seg_data, gt_emb_data, offset_y_data, z_data) in enumerate(
             dataset):
         # loss_back, loss_iter = forward_on_cuda(gpu, gt_data, input_data, loss, models)
         input_data = input_data.cuda()  # 将输入数据转移到GPU上
@@ -62,14 +65,14 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
         gt_emb_data = gt_emb_data.cuda()  # 将嵌入向量标签转移到GPU上
         offset_y_data = offset_y_data.cuda()  # 将偏移量标签转移到GPU上
         z_data = z_data.cuda() # 将高度标签转移到GPU上
-        image_gt_segment = image_gt_segment.cuda() # 将2D分割标签转移到GPU上
-        image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
+        # image_gt_segment = image_gt_segment.cuda() # 将2D分割标签转移到GPU上
+        # image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
         prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z = model(input_data,
-                                                                                gt_seg_data,
-                                                                                gt_emb_data,
-                                                                                offset_y_data, z_data,
-                                                                                image_gt_segment,
-                                                                                image_gt_instance) # 正向传播
+                                                                               image_gt,
+                                                                               configs,
+                                                                               gt_seg_data,
+                                                                               gt_emb_data,
+                                                                               offset_y_data, z_data) # 正向传播
         loss_back_bev = loss_total_bev.mean()  # 计算BEV总损失的平均值
         loss_back_2d = loss_total_2d.mean() # 计算2D总损失的平均值
         loss_offset = loss_offset.mean() # 计算偏移量损失的平均值
@@ -140,4 +143,5 @@ def worker_function(config_file, gpu_id, checkpoint_path=None):
 if __name__ == '__main__':
     import warnings
     warnings.filterwarnings("ignore")
-    worker_function('./tools/apollo_config.py', gpu_id=[0,1])  # 调用worker_function函数，传入配置文件路径和GPU编号
+    worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py', gpu_id=[6, 7],
+                    checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0616/ep065.pth')  # 调用worker_function函数，传入配置文件路径和GPU编号

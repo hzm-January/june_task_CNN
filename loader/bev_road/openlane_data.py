@@ -28,7 +28,6 @@ class OpenLane_dataset_with_offset(Dataset):
                    y_range,
                    meter_per_pixel,
                    data_trans,
-                    pre_trans,
                    output_2d_shape,
                   virtual_camera_config):
 
@@ -37,7 +36,7 @@ class OpenLane_dataset_with_offset(Dataset):
         self.meter_per_pixel = meter_per_pixel
         self.image_paths = image_paths
         self.gt_paths = gt_paths
-        self.cnt_list = []  # 数据集中图像路径 {[目录路径, 文件名],...}
+        self.cnt_list = []  # json标注文件路径 {[目录, 文件名],...}
         self.lane3d_thick = 1  # 可视化 车道线 粗细程度
         self.lane2d_thick = 3  # 可视化 车道线 粗细程度
         self.lane_length_threshold = 3  #
@@ -61,7 +60,6 @@ class OpenLane_dataset_with_offset(Dataset):
         ''' transform loader '''
         self.output2d_size = output_2d_shape
         self.trans_image = data_trans
-        self.pre_trans = pre_trans
 
         ''' ipm size '''
         self.ipm_h, self.ipm_w = int((self.x_range[1] - self.x_range[0]) / self.meter_per_pixel), int(
@@ -98,7 +96,7 @@ class OpenLane_dataset_with_offset(Dataset):
         for idx in res_d:
             ipm_points_ = np.array(res_d[idx])  # ipm_points_ (3,858)
             ipm_points = ipm_points_.T[np.where((ipm_points_[1] >= 0) & (ipm_points_[1] < self.ipm_h))].T  # ipm_points(3,522) max(ipm_points_[1]),min(ipm_points_[1]) = (190.26254605138521, -122.42839765298373) TODO: 为什么会有负值和超过200的值？标注点集转换都ipm
-            if len(ipm_points[0]) <= 1: # max(ipm_points_[0]),min(ipm_points_[0]) = (21.687956720530313, 21.03314342038494) TODO: 为什么 ipm_points[1] 即 y小于1的不处理？
+            if len(ipm_points[0]) <= 1: # max(ipm_points_[0]),min(ipm_points_[0]) = (21.687956720530313, 21.03314342038494) TODO: 为什么y小于1的不处理？
                 continue
             x, y, z = ipm_points[1], ipm_points[0], ipm_points[2]
             base_points = np.linspace(x.min(), x.max(),
@@ -206,7 +204,7 @@ class OpenLane_dataset_with_offset(Dataset):
             lane_ego = cam_w_extrinsics @ lane_camera_w  # (4,858) = (4,4) @ (4,858)
             ''' plot uv '''
             uv1 = ego2image(lane_ego[:3], cam_intrinsic, cam_extrinsics)  # (3,858)
-            cv2.polylines(image_gt, [uv1[0:2, :].T.astype(np.int_)], False, idx + 1, self.lane2d_thick)  # 将标签点集绘制到空白图像上
+            cv2.polylines(image_gt, [uv1[0:2, :].T.astype(np.int_)], False, idx + 1, self.lane2d_thick)
 
             distance = np.sqrt((lane_ego_persformer[1][0] - lane_ego_persformer[1][-1]) ** 2 + (
                     lane_ego_persformer[0][0] - lane_ego_persformer[0][-1]) ** 2)  # (x^2+y^2)^(1/2)
@@ -256,11 +254,9 @@ class OpenLane_dataset_with_offset(Dataset):
     def __getitem__(self, idx):
         """ 根据索引获取对应数据信息 """
         image, image_gt, ipm_gt, offset_y_map, z_map, cam_extrinsics, cam_intrinsic = self.get_seg_offset(idx)
+        transformed = self.trans_image(image=image) # 数据增强
 
-        # TODO: 上面一行代码，get_seg_offset函数中，将image和image_gt转换到了virtual camera，现在将转换放入网络中
-        # TODO: 涉及这两个变量的都要在网络中获得homograph之后重新计算
-        # transformed = self.pre_trans(image=image) # 数据增强 # TODO: 这里先不做增强，在网络中学到单应矩阵后再做
-        # image = transformed["image"]
+        image = transformed["image"]
         ''' 2d gt '''
         # image_gt = cv2.resize(image_gt, (self.output2d_size[1], self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
         # image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
@@ -272,7 +268,6 @@ class OpenLane_dataset_with_offset(Dataset):
         ipm_gt_z = torch.tensor(z_map).unsqueeze(0)
         ipm_gt_segment = torch.clone(ipm_gt_instance)
         ipm_gt_segment[ipm_gt_segment > 0] = 1
-
         # return image, ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float(), image_gt_segment.float(), image_gt_instance.float()
         return image, image_gt, ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float()
 

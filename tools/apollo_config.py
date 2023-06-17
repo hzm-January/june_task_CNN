@@ -21,11 +21,11 @@ def get_camera_matrix(cam_pitch,cam_height):
     return proj_g2c,camera_K
 
 ''' data split '''
-train_json_paths = '/dataset/apollo/data_splits/standard/train.json'
-test_json_paths = '/dataset/apollo/data_splits/standard/test.json'
-data_base_path = '/dataset/apollo/Apollo_Sim_3D_Lane_Release'
+train_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthetic_Dataset-master/data_splits/standard/train.json'
+test_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthetic_Dataset-master/data_splits/standard/val.json'
+data_base_path = '/home/houzm/datasets/apollo-3d-lane-synthetic/Apollo_Sim_3D_Lane_Release'
 
-model_save_path = "/dataset/model/apollo/0516"
+model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0616_2"
 
 input_shape = (576,1024)
 output_2d_shape = (144,256)
@@ -57,7 +57,7 @@ def model():
 
 
 ''' optimizer '''
-epochs = 50
+epochs = 450
 optimizer = AdamW
 optimizer_params = dict(
     lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
@@ -65,9 +65,7 @@ optimizer_params = dict(
 )
 scheduler = CosineAnnealingLR
 
-
-def train_dataset():
-    train_trans = A.Compose([
+train_trans = A.Compose([
                     A.Resize(height=input_shape[0], width=input_shape[1]),
                     A.MotionBlur(p=0.2),
                     A.RandomBrightnessContrast(),
@@ -75,6 +73,8 @@ def train_dataset():
                     A.Normalize(),
                     ToTensorV2()
                     ])
+def train_dataset():
+
     train_data = Apollo_dataset_with_offset(train_json_paths, data_base_path, 
                                               x_range, y_range, meter_per_pixel, 
                                               train_trans, output_2d_shape, vc_config)

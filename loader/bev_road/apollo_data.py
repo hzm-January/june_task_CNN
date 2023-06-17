@@ -40,8 +40,8 @@ class Apollo_dataset_with_offset(Dataset):
             for line in file:
                 info_dict = json.loads(line)
                 self.cnt_list.append(info_dict)
-        
 
+        
         ''' virtual camera paramter'''
         self.use_virtual_camera = virtual_camera_config['use_virtual_camera']
         self.vc_intrinsic = virtual_camera_config['vc_intrinsic']
@@ -201,12 +201,12 @@ class Apollo_dataset_with_offset(Dataset):
         bev_gt,offset_y_map,z_map = self.get_y_offset_and_z(res_points_d)
 
         ''' virtual camera '''
-        if self.use_virtual_camera:
-            sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
-                                 camera_k, project_c2g, image.shape[:2])
-            trans_matrix = sc.get_matrix(height=0)
-            image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
-            image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
+        # if self.use_virtual_camera:
+        #     sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
+        #                          camera_k, project_c2g, image.shape[:2])
+        #     trans_matrix = sc.get_matrix(height=0)
+        #     image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
+        #     image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
         return image,image_gt,bev_gt,offset_y_map,z_map,project_c2g,camera_k
 
     # 在__getitem__函数中，返回图像、BEV地图、车道偏移、z值、图像标签等信息。
@@ -219,17 +219,18 @@ class Apollo_dataset_with_offset(Dataset):
         transformed = self.trans_image(image=image)
         image = transformed["image"]
         ''' 2d gt'''
-        image_gt = cv2.resize(image_gt, (self.output2d_size[1],self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
-        image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
-        image_gt_segment = torch.clone(image_gt_instance)
-        image_gt_segment[image_gt_segment > 0] = 1
+        # image_gt = cv2.resize(image_gt, (self.output2d_size[1],self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
+        # image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
+        # image_gt_segment = torch.clone(image_gt_instance)
+        # image_gt_segment[image_gt_segment > 0] = 1
         ''' 3d gt'''
         bev_gt_instance = torch.tensor(bev_gt).unsqueeze(0)  # h, w, c0
         bev_gt_offset = torch.tensor(offset_y_map).unsqueeze(0)
         bev_gt_z = torch.tensor(z_map).unsqueeze(0)
         bev_gt_segment = torch.clone(bev_gt_instance)
         bev_gt_segment[bev_gt_segment > 0] = 1
-        return image, bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float(),image_gt_segment.float(),image_gt_instance.float()
+        # return image, bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float(),image_gt_segment.float(),image_gt_instance.float()
+        return image, image_gt, bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float()
 
 
     def get_camera_matrix(self,cam_pitch,cam_height):
@@ -329,7 +330,7 @@ class Apollo_dataset_with_offset_val(Dataset):
 if __name__ == '__main__':
     ''' parameter from config '''
     from utils.config_util import load_config_module
-    config_file = '/mnt/ve_perception/wangruihao/code/BEV-LaneDet/tools/apollo_config.py'
+    config_file = '/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py'
     configs = load_config_module(config_file)
     dataset = configs.val_dataset()
     for item in dataset:

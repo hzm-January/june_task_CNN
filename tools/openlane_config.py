@@ -13,9 +13,9 @@ val_gt_paths = '/home/houzm/datasets/openlane/lane3d_1000/validation'
 val_image_paths = '/home/houzm/datasets/openlane/images/validation'
 
 model_save_path = "/home/houzm/houzm/02_code/bev_lane_det-cnn/checkpoints/openlane"
-input_shape=(1280, 1920, 3)
-resize_shape = (576, 1024)
-output_2d_shape = (144, 256)
+
+input_shape = (576,1024)
+output_2d_shape = (144,256)
 
 ''' BEV range '''
 x_range = (3, 103)
@@ -45,7 +45,7 @@ vc_config['vc_image_shape'] = (1920, 1280)
 
 ''' model '''
 def model():
-    return BEV_LaneDet(bev_shape=bev_shape, input_shape=input_shape, output_2d_shape=output_2d_shape, train=True)
+    return BEV_LaneDet(bev_shape=bev_shape, output_2d_shape=output_2d_shape,train=True)
 
 
 ''' optimizer '''
@@ -56,19 +56,16 @@ optimizer_params = dict(
     weight_decay=1e-2, amsgrad=False
 )
 scheduler = CosineAnnealingLR
-pre_trans = A.Compose([
-                    A.Resize(height=resize_shape[0], width=resize_shape[1]),
-                    ToTensorV2()
-                    ])
+
+
 train_trans = A.Compose([
-                    A.Resize(height=resize_shape[0], width=resize_shape[1]),
+                    A.Resize(height=input_shape[0], width=input_shape[1]),
                     A.MotionBlur(p=0.2),
                     A.RandomBrightnessContrast(),
                     A.ColorJitter(p=0.1),
                     A.Normalize(),
                     ToTensorV2()
                     ])
-
 def train_dataset():
 
     '''
@@ -83,14 +80,14 @@ def train_dataset():
     '''
     train_data = OpenLane_dataset_with_offset(train_image_paths, train_gt_paths, 
                                               x_range, y_range, meter_per_pixel, 
-                                              train_trans, pre_trans, output_2d_shape, vc_config)
+                                              train_trans, output_2d_shape, vc_config)
 
     return train_data
 
 
 def val_dataset():
     trans_image = A.Compose([
-        A.Resize(height=resize_shape[0], width=resize_shape[1]),
+        A.Resize(height=input_shape[0], width=input_shape[1]),
         A.Normalize(),
         ToTensorV2()])
     val_data = OpenLane_dataset_with_offset_val(val_image_paths,val_gt_paths,

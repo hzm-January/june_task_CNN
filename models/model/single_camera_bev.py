@@ -288,21 +288,109 @@ class Residual(nn.Module):
 # 车道线检测头 (self.lane_head)，以 BEV 表示作为输入，输出表示检测到的车道线的张量。
 # 可选的 2D 图像车道线检测头 (self.lane_head_2d)，以 ResNet 骨干网络的输出作为输入，输出表示原始图像中检测到的车道线的张量。
 class BEV_LaneDet(nn.Module):  # BEV-LaneDet
-    def __init__(self, bev_shape, input_shape, output_2d_shape, train=True):
+    def __init__(self, bev_shape, output_2d_shape, train=True):
         super(BEV_LaneDet, self).__init__()
 
+        # self.down_pre = nn.Sequential(
+        #                     nn.Conv2d(3, 1024, kernel_size=3, stride=2, padding=1),  #
+        #                     nn.BatchNorm2d(1024),
+        #                     nn.ReLU(),
+        #                     nn.Conv2d(1024, 1024, kernel_size=3, stride=2, padding=1),  #
+        #                     nn.BatchNorm2d(1024),
+        #                     nn.ReLU(),
+        #                     nn.Conv2d(1024, 1024, kernel_size=3, stride=2, padding=1),  # S8
+        #                     nn.BatchNorm2d(1024),
+        #                     nn.ReLU(),
+        #                     nn.Conv2d(1024, 512, kernel_size=3, stride=2, padding=1),  # S16
+        #                     nn.BatchNorm2d(512),
+        #                     nn.ReLU(),
+        #                     nn.Conv2d(512, 256, kernel_size=3, stride=2, padding=1),  # S32
+        #                     nn.BatchNorm2d(256),
+        #                     nn.ReLU(),
+        #                     nn.Conv2d(128, 64, kernel_size=3, stride=1, padding=1),
+        #                     nn.BatchNorm2d(64)
+        #                 )
+        ''' down pre '''
+        self.down_pre = naive_init_module(
+            nn.Sequential(
+                Residual(
+                    module=nn.Sequential(
+                        nn.Conv2d(3, 6, kernel_size=3, stride=2, padding=1),  # S2
+                        nn.BatchNorm2d(6),
+                        nn.ReLU(),
+                        nn.Conv2d(6, 6, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(6)
+                    ),
+                    downsample=nn.Conv2d(3, 6, kernel_size=3, stride=2, padding=1),
+                ),
+                Residual(
+                    module=nn.Sequential(
+                        nn.Conv2d(6, 12, kernel_size=3, stride=2, padding=1),  # S4
+                        nn.BatchNorm2d(12),
+                        nn.ReLU(),
+                        nn.Conv2d(12, 12, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(12)
+                    ),
+                    downsample=nn.Conv2d(6, 12, kernel_size=3, stride=2, padding=1),
+                ),
+                Residual(
+                    module=nn.Sequential(
+                        nn.Conv2d(12, 24, kernel_size=3, stride=2, padding=1),  # S8
+                        nn.BatchNorm2d(24),
+                        nn.ReLU(),
+                        nn.Conv2d(24, 24, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(24)
+                    ),
+                    downsample=nn.Conv2d(12, 24, kernel_size=3, stride=2, padding=1),
+                ),
+                Residual(
+                    module=nn.Sequential(
+                        nn.Conv2d(24, 48, kernel_size=3, stride=2, padding=1),  # S16
+                        nn.BatchNorm2d(48),
+                        nn.ReLU(),
+                        nn.Conv2d(48, 48, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(48)
+                    ),
+                    downsample=nn.Conv2d(24, 48, kernel_size=3, stride=2, padding=1),
+                ),
+                Residual(
+                    module=nn.Sequential(
+                        nn.Conv2d(48, 96, kernel_size=3, stride=2, padding=1),  # S32
+                        nn.BatchNorm2d(96),
+                        nn.ReLU(),
+                        nn.Conv2d(96, 96, kernel_size=3, stride=1, padding=1),
+                        nn.BatchNorm2d(96)
+                    ),
+                    downsample=nn.Conv2d(48, 96, kernel_size=3, stride=2, padding=1),
+                ),
+                # Residual(
+                #     module=nn.Sequential(
+                #         nn.Conv2d(96, 128, kernel_size=3, stride=2, padding=1),  # S64
+                #         nn.BatchNorm2d(128),
+                #         nn.ReLU(),
+                #         nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
+                #         nn.BatchNorm2d(128)
+                #     ),
+                #     downsample=nn.Conv2d(96, 128, kernel_size=3, stride=2, padding=1),
+                # ),
+                nn.Conv2d(96, 32, kernel_size=3, stride=1, padding=1)
+            ))
+
+        self.head = InstanceEmbedding(32, 2)
+        naive_init_module(self.head)
+        # self.bb_pre = nn.Sequential(*list(tv.models.resnet18(pretrained=True).children())[:-2])
         ''' backbone '''
         self.bb = nn.Sequential(*list(tv.models.resnet18(pretrained=True).children())[:-2])
-
         ''' HomograpNet '''
-        self.hnet = nn.Sequential(
+        self.hg = nn.Sequential(
             nn.Flatten(),
-            # nn.Linear(in_features=1024*576*3, out_features=512, bias=True),
-            nn.Linear(in_features=1280 * 1920 * 3, out_features=16, bias=True),
+            nn.Linear(in_features=32 * 18 * 32, out_features=512, bias=True),
             nn.ReLU(),
-            nn.Linear(in_features=16, out_features=8, bias=True),
+            nn.Linear(in_features=512, out_features=256, bias=True),
             nn.ReLU(),
-            nn.Linear(in_features=8, out_features=9, bias=True)
+            nn.Linear(in_features=256, out_features=256, bias=True),
+            nn.ReLU(),
+            nn.Linear(in_features=256, out_features=9, bias=True)
         )
 
         self.down = naive_init_module(
@@ -326,16 +414,16 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
         if self.is_train:
             self.lane_head_2d = LaneHeadResidual_Instance(output_2d_shape, input_channel=512)
 
-    def forward(self, img, img_gt, configs):  # img (8,3,576,1024) -> img (16,1280,1920,3)
-        homograph_matrix = self.hnet(img.to(torch.float32))
-        # 单应变换
-        img, image_gt_instance, image_gt_segment = homograph(img, img_gt, homograph_matrix, configs)
-        img_s32 = self.bb(img)  # img_s32 (8,512,18,32)
-        img_s64 = self.down(img_s32)  # img_s64 (8,1024,9,16)
-        bev_32 = self.s32transformer(img_s32)  # bev_32 (8,256,25,5)
-        bev_64 = self.s64transformer(img_s64)  # bev_64 (8,256,25,5)
+    def forward(self, img, img_gt=None, configs=None):  # img (8,3,576,1024)
+        hg_mtx_feat = self.down_pre(img)  # img_s32 (8,512,18,32)
+        hg_mtx = self.hg(hg_mtx_feat)  # homograph matrix
+        img_vt, image_gt_instance, image_gt_segment = homograph(img, img_gt, hg_mtx, configs)
+        img_vt_s32 = self.bb(img_vt)
+        img_vt_s64 = self.down(img_vt_s32)  # img_s64 (8,1024,9,16)
+        bev_32 = self.s32transformer(img_vt_s32)  # bev_32 (8,256,25,5)
+        bev_64 = self.s64transformer(img_vt_s64)  # bev_64 (8,256,25,5)
         bev = torch.cat([bev_64, bev_32], dim=1)  # bev (8,512,25,5)
         if self.is_train:
-            return image_gt_instance, image_gt_segment, self.lane_head(bev), self.lane_head_2d(img_s32)
+            return image_gt_instance, image_gt_segment, self.lane_head(bev), self.lane_head_2d(img_vt_s32)
         else:
             return image_gt_instance, image_gt_segment, self.lane_head(bev)
