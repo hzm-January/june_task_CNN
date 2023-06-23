@@ -71,10 +71,10 @@ def image_undistort(img, camera_intrinsic, distort_params, mode='pinhole'):
     return cv2.remap(img, mapx, mapy, cv2.INTER_LINEAR)
 
 
-def IPM2ego_matrix(ipm_center=None, m_per_pixel=None, ipm_points=None, ego_points=None):
+def IPM2ego_matrix(ipm_center=None, m_per_pixel=None, ipm_points=None, ego_points=None):  # m_per_pixel 0.5
     if ipm_points is None:
-        center_x, center_y = ipm_center[0] * m_per_pixel, ipm_center[1] * m_per_pixel
-        M = np.array([[-m_per_pixel, 0, center_x], [0, -m_per_pixel, center_y]])
+        center_x, center_y = ipm_center[0] * m_per_pixel, ipm_center[1] * m_per_pixel  # x 103 y 12 ipm_center (206,24)
+        M = np.array([[-m_per_pixel, 0, center_x], [0, -m_per_pixel, center_y]])  # [[ -0.5   0.  103. ], [  0.   -0.5  12. ]]
     else:
         pts1 = np.float32(ipm_points)
         pts2 = np.float32(ego_points)

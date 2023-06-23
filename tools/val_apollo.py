@@ -1,9 +1,9 @@
 import os
-gpu_id = [0]
+gpu_id = [5]
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = ','.join([str(i) for i in gpu_id])
 import sys
-sys.path.append('/workspace/bev_lane_det')
+sys.path.append('/home/houzm/houzm/02_code/bev_lane_det-cnn')
 import shutil
 import numpy as np
 import json
@@ -18,10 +18,10 @@ from utils.util_val.val_offical import LaneEval
 from models.model.single_camera_bev import *
 
 
-model_path = '/dataset/model/apollo//0516/ep049.pth' #model path of verification
+model_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0616_2/ep230.pth' #model path of verification
 
 ''' parameter from config '''
-config_file = './apollo_config.py'
+config_file = '/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py'
 configs = load_config_module(config_file)
 test_json_paths = configs.test_json_paths
 x_range = configs.x_range
@@ -33,7 +33,7 @@ meter_per_pixel = configs.meter_per_pixel
 post_conf = 0.9 # Minimum confidence on the segmentation map for clustering
 post_emb_margin = 6.0 # embeding margin of different clusters
 post_min_cluster_size = 15 # The minimum number of points in a cluster
-tmp_save_path = '/workspace/tmp_apollo' #tmp path for save intermediate result
+tmp_save_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/validate/0617/' #tmp path for save intermediate result
 
 class PostProcessDataset(Dataset):
     def __init__(self, model_res_save_path, postprocess_save_path,test_json_paths):
@@ -106,7 +106,7 @@ def val():
         image,bn_name = item
         image = image.cuda()
         with torch.no_grad():
-            pred_ = model(image)[0]
+            pred_ = model(image, configs=configs)[2]
             seg = pred_[0].detach().cpu()
             embedding = pred_[1].detach().cpu()
             offset_y = torch.sigmoid(pred_[2]).detach().cpu()

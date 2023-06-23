@@ -73,30 +73,30 @@ class Apollo_dataset_with_offset(Dataset):
         res_lane_points_bin = {}
         res_lane_points_set = {}
         for idx in res_d:
-            ipm_points_ = np.array(res_d[idx])
-            ipm_points = ipm_points_.T[np.where((ipm_points_[1] >= 0) & (ipm_points_[1] < self.ipm_h))].T  # 进行筛选
-            if len(ipm_points[0]) <= 1:
+            ipm_points_ = np.array(res_d[idx])  # res_d[idx] (3,103)
+            ipm_points = ipm_points_.T[np.where((ipm_points_[1] >= 0) & (ipm_points_[1] < self.ipm_h))].T  # 进行筛选 x [0,(103-3)/0.5=200]
+            if len(ipm_points[0]) <= 1:  # ipm_points_ (3,103) row<=1 当前车道线仅有一个点
                 continue
             x, y, z = ipm_points[1], ipm_points[0], ipm_points[2]
             base_points = np.linspace(x.min(), x.max(),
                                       int((x.max() - x.min()) // 0.05))  # 画 offset 用得 画的非常细 一个格子里面20个点
             base_points_bin = np.linspace(int(x.min()), int(x.max()),
-                                          int(int(x.max()) - int(x.min()))+1)  # .astype(np.int)
+                                          int(int(x.max()) - int(x.min()))+1)  # .astype(np.int) bin间隔为1，[2,3,4....]
             # print(len(x),len(y),len(y))
-            if len(x) == len(set(x)):
-                if len(x) <= 1:
+            if len(x) == len(set(x)):  # x无重复值
+                if len(x) <= 1:  # 车道线仅一个点，舍弃该车道线
                     continue
-                elif len(x) <= 2:
+                elif len(x) <= 2:  # 车道线仅两个点
                     function1 = interp1d(x, y, kind='linear',
                                          fill_value="extrapolate")  # 线性插值 #三次样条插值 kind='quadratic' linear cubic
-                    function2 = interp1d(x, z, kind='linear')
+                    function2 = interp1d(x, z, kind='linear')  # 一元插值+直线 得到插值后的函数
                 elif len(x) <= 3:
                     function1 = interp1d(x, y, kind='quadratic', fill_value="extrapolate")
                     function2 = interp1d(x, z, kind='quadratic')
                 else:
                     function1 = interp1d(x, y, kind='cubic', fill_value="extrapolate")
                     function2 = interp1d(x, z, kind='cubic')
-            else:
+            else:  # x有重复值
                 sorted_index = np.argsort(x)[::-1] # 从大到小
                 x_,y_,z_ = [],[],[]
                 for x_index in range(len(sorted_index)): # 越来越小
@@ -170,32 +170,32 @@ class Apollo_dataset_with_offset(Dataset):
 
         # caculate point
         lane_grounds = info_dict['laneLines']
-        image_gt = np.zeros(image.shape[:2], dtype=np.uint8)
-        matrix_IPM2ego = IPM2ego_matrix(
-            ipm_center=(int(self.x_range[1] / self.meter_per_pixel), int(self.y_range[1] / self.meter_per_pixel)),
-            m_per_pixel=self.meter_per_pixel)
+        image_gt = np.zeros(image.shape[:2], dtype=np.uint8)  # image.shape(1080,1920,3)
+        matrix_IPM2ego = IPM2ego_matrix( # x_range(3,103) y_range(-12,12)
+            ipm_center=(int(self.x_range[1] / self.meter_per_pixel), int(self.y_range[1] / self.meter_per_pixel)), #ipm_center(206,24)
+            m_per_pixel=self.meter_per_pixel) # meter_per_pixel 0.5
         res_points_d = {}
         for lane_idx in range(len(lane_grounds)):
             # select point by visibility
-            lane_visibility = np.array(info_dict['laneLines_visibility'][lane_idx])
-            lane_ground = np.array(lane_grounds[lane_idx])
+            lane_visibility = np.array(info_dict['laneLines_visibility'][lane_idx])  # 像素点是否可见(0,1)
+            lane_ground = np.array(lane_grounds[lane_idx])  # 当前车道线mark像素点
             assert lane_visibility.shape[0] == lane_ground.shape[0]
-            lane_ground = lane_ground[lane_visibility > 0.5]
-            lane_ground = np.concatenate([lane_ground, np.ones([lane_ground.shape[0], 1])], axis=1).T
+            lane_ground = lane_ground[lane_visibility > 0.5]  # 仅保留车道线上可见像素点 lane_ground(71,3)
+            lane_ground = np.concatenate([lane_ground, np.ones([lane_ground.shape[0], 1])], axis=1).T  # lane_ground(4,71)
             # get image gt
-            lane_camera = np.matmul(project_g2c, lane_ground)
-            lane_image = camera_k @ lane_camera[:3]
-            lane_image = lane_image / lane_image[2]
-            lane_uv = lane_image[:2].T
+            lane_camera = np.matmul(project_g2c, lane_ground)  # lane_camera (4,71)
+            lane_image = camera_k @ lane_camera[:3]  # lane_image (3,71)
+            lane_image = lane_image / lane_image[2]  # lane_image (3,71)
+            lane_uv = lane_image[:2].T  # lane_uv (71,2) 为什么图像坐标到像素坐标没有移动坐标中心？-应该是在计算ipm_points时做了移动
             cv2.polylines(image_gt, [lane_uv.astype(np.int)], False, lane_idx + 1, 3)
             x, y, z = lane_ground[1], -1 * lane_ground[0], lane_ground[2]
             ground_points = np.array([x, y])
-            ipm_points = np.linalg.inv(matrix_IPM2ego[:, :2]) @ (
+            ipm_points = np.linalg.inv(matrix_IPM2ego[:, :2]) @ (  # matrix_IPM2ego[:, :2] [[-0.5  0. ], [ 0.  -0.5]] 求逆 [[-2. -0.], [-0. -2.]]
                         ground_points[:2] - matrix_IPM2ego[:, 2].reshape(2, 1))
-            ipm_points_ = np.zeros_like(ipm_points)
-            ipm_points_[0] = ipm_points[1]
-            ipm_points_[1] = ipm_points[0]
-            res_points = np.concatenate([ipm_points_, np.array([z])], axis=0)
+            ipm_points_ = np.zeros_like(ipm_points)  # ipm_points(2,71)
+            ipm_points_[0] = ipm_points[1]  # (x,y)->(y,x)
+            ipm_points_[1] = ipm_points[0]  # ipm_points_(2,71)
+            res_points = np.concatenate([ipm_points_, np.array([z])], axis=0)  # res_points (3,71) [[x,y,z],[]]
             res_points_d[lane_idx+1] = res_points
 
         bev_gt,offset_y_map,z_map = self.get_y_offset_and_z(res_points_d)

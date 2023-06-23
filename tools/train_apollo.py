@@ -11,6 +11,7 @@ from utils.config_util import load_config_module # 导入加载配置文件的�
 from sklearn.metrics import f1_score # 导入F1分数计算函数
 import numpy as np
 import os
+# os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
 os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 
 # 定义一个继承自nn.Module的类，将模型和损失函数组合在一起
@@ -143,5 +144,5 @@ def worker_function(config_file, gpu_id, checkpoint_path=None):
 if __name__ == '__main__':
     import warnings
     warnings.filterwarnings("ignore")
-    worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py', gpu_id=[6, 7],
-                    checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0616/ep065.pth')  # 调用worker_function函数，传入配置文件路径和GPU编号
+    # worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py', gpu_id=[4,5])  # 调用worker_function函数，传入配置文件路径和GPU编号
+    worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py', gpu_id=[6,7])  # 调用worker_function函数，传入配置文件路径和GPU编号
