@@ -27,6 +27,7 @@ class Combine_Model_and_Loss(torch.nn.Module):
         # self.sigmoid = nn.Sigmoid()
     # 正向传播函数
     def forward(self, inputs, images_gt, configs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None, train=True):
+        # images_gt current camera 图像像素坐标系，尺寸与image相同，图片中只有车道线的信息，不同车道线不同颜色，
         res = self.model(inputs, images_gt, configs) # 调用模型进行预测
         image_gt_instance = res[0]
         image_gt_segment = res[1]
@@ -43,6 +44,10 @@ class Combine_Model_and_Loss(torch.nn.Module):
             loss_offset = 60 * loss_offset.unsqueeze(0) # 将偏移量损失转换成一维张量并乘以60
             loss_z = 30 * loss_z.unsqueeze(0) # 将高度损失转换成一维张量并乘以30
             ## 2d
+            # image_gt_instance = image_gt current camera 图像像素坐标系，尺寸与image相同，图片中只有车道线的信息，不同车道线不同颜色，
+            # image_gt_segment 与image_gt_instance唯一的不同是没有不同车道线的标注，只有0 1值，标注像素点是否是车道线。
+            # pred_2d
+            # emb_2d
             loss_seg_2d = self.bce(pred_2d, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d), image_gt_segment)  # 计算2D分割损失和IoU损失
             loss_emb_2d = self.poopoo(emb_2d, image_gt_instance) # 计算2D嵌入向量损失
             loss_total_2d = 3 * loss_seg_2d + 0.5 * loss_emb_2d  # 计算2D总损失

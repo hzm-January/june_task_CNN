@@ -298,7 +298,8 @@ class HG_CNN(nn.Module):
             nn.Conv2d(6, 12, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(12),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=4, stride=4)
         )
         self.layer2 = nn.Sequential(
             nn.Conv2d(12, 24, kernel_size=3, padding=1, bias=False),
@@ -307,7 +308,8 @@ class HG_CNN(nn.Module):
             nn.Conv2d(24, 48, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(48),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            # nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=4, stride=4)
         )
         self.layer3 = nn.Sequential(
             nn.Conv2d(48, 96, kernel_size=3, padding=1, bias=False),
@@ -318,26 +320,26 @@ class HG_CNN(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
-        self.layer4 = nn.Sequential(
-            nn.Conv2d(192, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
-        self.layer5 = nn.Sequential(
-            nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(128),
-            nn.ReLU(),
-            nn.Conv2d(128, 96, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(96),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
-        )
+        # self.layer4 = nn.Sequential(
+        #     nn.Conv2d(192, 128, kernel_size=3, padding=1, bias=False),
+        #     nn.BatchNorm2d(128),
+        #     nn.ReLU(),
+        #     nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+        #     nn.BatchNorm2d(128),
+        #     nn.ReLU(),
+        #     nn.MaxPool2d(kernel_size=2, stride=2)
+        # )
+        # self.layer5 = nn.Sequential(
+        #     nn.Conv2d(128, 128, kernel_size=3, padding=1, bias=False),
+        #     nn.BatchNorm2d(128),
+        #     nn.ReLU(),
+        #     nn.Conv2d(128, 96, kernel_size=3, padding=1, bias=False),
+        #     nn.BatchNorm2d(96),
+        #     nn.ReLU(),
+        #     nn.MaxPool2d(kernel_size=2, stride=2)
+        # )
         self.layer6 = nn.Sequential(
-            nn.Conv2d(96, 64, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(192, 64, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.Conv2d(64, 32, kernel_size=3, padding=1, bias=False),
@@ -346,28 +348,30 @@ class HG_CNN(nn.Module):
         )
         self.fc = nn.Sequential(
             nn.Dropout(0.5),
-            nn.Linear(32 * 18 * 32, 1024),
+            nn.Linear(32 * 33 * 60, 258),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1024, 8)
+            nn.Linear(258, 8)
         )
         hg_mlp_init_module(self.layer1)
         hg_mlp_init_module(self.layer2)
         hg_mlp_init_module(self.layer3)
-        hg_mlp_init_module(self.layer4)
-        hg_mlp_init_module(self.layer5)
+        # hg_mlp_init_module(self.layer4)
+        # hg_mlp_init_module(self.layer5)
         hg_mlp_init_module(self.layer6)
 
     def forward(self, x):
-        out = self.layer1(x)
-        out = self.layer2(out)
-        out = self.layer3(out)
-        out = self.layer4(out)
-        out = self.layer5(out)
-        out = self.layer6(out)
+        # img (8,1080,1920,3) -> (8,3,1080,1920)
+        # x = x.permute(0, 3, 1, 2).float()
+        out = self.layer1(x)  # x img(8,3,1080,1920) -> out (8,12,540,960)
+        out = self.layer2(out)  # out (8,12,540,960) -> out (8,48,270,480)
+        out = self.layer3(out)  # out (8,48,270,480) -> out (8,192,135,240)
+        # out = self.layer4(out)  # out (8,192,135,240) -> out (8,128,67,120)
+        # out = self.layer5(out)  # out (8,128,67,120) -> out (8,96,33,60)
+        out = self.layer6(out)  # out (8,96,33,60) -> out (8,32,33,60)
         out = out.contiguous().view(x.size(0), -1)
         out = self.fc(out)
-        return out
+        return out  # out(8,8)
 class HG_MLP(nn.Module): # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
     def __init__(self, image_featmap_size, space_featmap_size):
         super(HG_MLP, self).__init__()
@@ -512,8 +516,8 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
     def forward(self, img, img_gt=None, configs=None):  # img (32,3,576,1024)  img_gt (32,1080,1920)
         # hg_mtx_feat = self.down_pre(img)  # img (32,3,576,1024) hg_mtx_feat (32,32,18,32)
         # hg_mtx = self.hg(hg_mtx_feat)  # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
-        hg_mtx = self.hg(img)
-        print(hg_mtx[0])
+        hg_mtx = self.hg(img)  # img(8,1080,1920,3)
+        print(np.array(hg_mtx[0]))
         img_vt, image_gt_instance, image_gt_segment = homograph(img, img_gt, hg_mtx, configs)
         img_vt_s32 = self.bb(img_vt)  # img_vt (32,3,576,1024) img_vt_s32 (32,512,18,32)
         img_vt_s64 = self.down(img_vt_s32)  # img_vt_s32 (32,512,18,32) img_s64 (32,1024,9,16)

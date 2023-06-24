@@ -19,8 +19,8 @@ def homograph(images, images_gt, hg_mtxs, configs):
     images_gt_instance = torch.zeros(batch_size, 1, output_2d_w, output_2d_h)  # (16,1,144,256)
     images_gt_segment = torch.zeros(batch_size, 1, output_2d_w, output_2d_h)  # (16,1,144,256)
     # img_s32 (8,512,18,32)
-    imgs_vt_s32 = torch.zeros_like(images)  # (16,3,576,1024)
-    for i in range(images.shape[0]):
+    imgs_vt_s32 = torch.zeros(batch_size,img_s32_c,img_s32_w,img_s32_h)  # (16,3,576,1024)
+    for i in range(batch_size):
         image = images[i]  # images (3,576,1024) images_gt (1280,1920)
         # if hg_mtxs[i][-1][-1] == 0: hg_mtxs[i][-1][-1] = 1
         # if hg_mtxs[i][-1][-1] < 0: hg_mtxs[i][-1][-1] = -hg_mtxs[i][-1][-1]
@@ -32,14 +32,14 @@ def homograph(images, images_gt, hg_mtxs, configs):
         # image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
 
         hg_mtx = hg_mtxs[i]
-        image = image.permute(1, 2, 0)  # (576,1024,3)
+        image = image.permute(1, 2, 0)  # (1080,1920,3)
         image = cv2.warpPerspective(image.detach().cpu().numpy(), hg_mtx.detach().cpu().numpy(), img_vt_s32_hg_shape)
 
-        # transformed = configs.trans_image(image=image)
-        # image = transformed["image"]
+        transformed = configs.train_trans(image=image)
+        image = transformed["image"]
 
 
-        image = torch.tensor(image, dtype=torch.float).permute(2, 0, 1).cuda()  # images (3,576,1024)
+        # image = torch.tensor(image, dtype=torch.float).permute(2, 0, 1).cuda()  # images (3,576,1024)
 
         image_gt_instance = torch.zeros(configs.output_2d_shape)
         image_gt_segment = torch.zeros(configs.output_2d_shape)

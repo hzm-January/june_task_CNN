@@ -8,7 +8,7 @@ from scipy.interpolate import interp1d
 from torch.utils.data import Dataset
 from utils.coord_util import ego2image,IPM2ego_matrix
 from utils.standard_camera_cpu import Standard_camera
-
+from albumentations.pytorch import ToTensorV2
 # 这段代码定义了两个PyTorch数据集，用于ApolloScape数据集：Apollo_dataset_with_offset和Apollo_dataset_with_offset_val。前者用于训练，生成带有车道偏移和z值的BEV地图，而后者用于验证，仅生成图像。
 
 '''
@@ -216,8 +216,17 @@ class Apollo_dataset_with_offset(Dataset):
         :return:
         '''
         image, image_gt, bev_gt, offset_y_map, z_map, cam_extrinsics, cam_intrinsic = self.get_seg_offset(idx)
-        transformed = self.trans_image(image=image)
-        image = transformed["image"]
+
+        # transformed = self.trans_image(image=image)
+        # image = transformed["image"]
+
+        # 不适用transformer，需要将图片转换为tensor
+        import torchvision.transforms as transforms
+        transf = transforms.ToTensor()
+        image = transf(image)  # tensor数据格式是torch(C,H,W)
+
+
+        # print(img_tensor.size())
         ''' 2d gt'''
         # image_gt = cv2.resize(image_gt, (self.output2d_size[1],self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
         # image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
