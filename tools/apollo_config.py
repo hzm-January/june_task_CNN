@@ -6,12 +6,11 @@ import numpy as np
 from loader.bev_road.apollo_data import Apollo_dataset_with_offset, Apollo_dataset_with_offset_val
 from models.model.single_camera_bev import BEV_LaneDet
 
-
-def get_camera_matrix(cam_pitch, cam_height):
-    proj_g2c = np.array([[1, 0, 0, 0],
-                         [0, np.cos(np.pi / 2 + cam_pitch), -np.sin(np.pi / 2 + cam_pitch), cam_height],
-                         [0, np.sin(np.pi / 2 + cam_pitch), np.cos(np.pi / 2 + cam_pitch), 0],
-                         [0, 0, 0, 1]])
+def get_camera_matrix(cam_pitch,cam_height):
+    proj_g2c = np.array([[1,                             0,                              0,          0],
+                        [0, np.cos(np.pi / 2 + cam_pitch), -np.sin(np.pi / 2 + cam_pitch), cam_height],
+                        [0, np.sin(np.pi / 2 + cam_pitch),  np.cos(np.pi / 2 + cam_pitch),          0],
+                        [0,                             0,                              0,          1]])
 
     camera_K = np.array([[2015., 0., 960.],
                          [0., 2015., 540.],
@@ -37,7 +36,7 @@ meter_per_pixel = 0.5  # grid size
 bev_shape = (int((x_range[1] - x_range[0]) / meter_per_pixel), int((y_range[1] - y_range[0]) / meter_per_pixel))
 
 loader_args = dict(
-    batch_size=8,
+    batch_size=16,
     num_workers=12,
     shuffle=True
 )
@@ -61,7 +60,7 @@ def model():
 epochs = 100
 optimizer = AdamW
 optimizer_params = dict(
-    lr=1e-1, betas=(0.9, 0.999), eps=1e-8,
+    lr=1e-5, betas=(0.9, 0.999), eps=1e-8,
     weight_decay=1e-2, amsgrad=False
 )
 scheduler = CosineAnnealingLR

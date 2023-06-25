@@ -1,4 +1,7 @@
 import sys
+
+import cv2
+import torchgeometry as tgm
 sys.path.append('/home/houzm/houzm/02_code/bev_lane_det-cnn')# 添加模块搜索路径
 import torch
 from torch.optim.lr_scheduler import CosineAnnealingLR # 导入余弦退火学习率调度器
@@ -26,15 +29,17 @@ class Combine_Model_and_Loss(torch.nn.Module):
         self.bce_loss = nn.BCELoss() # 定义二元交叉熵损失函数
         # self.sigmoid = nn.Sigmoid()
     # 正向传播函数
-    def forward(self, inputs, images_gt, configs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None, train=True):
+    def forward(self, inputs, images_gt, configs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None, image_gt_segment=None,
+                image_gt_instance=None, train=True):
         # images_gt current camera 图像像素坐标系，尺寸与image相同，图片中只有车道线的信息，不同车道线不同颜色，
-        res = self.model(inputs, images_gt, configs) # 调用模型进行预测
-        image_gt_instance = res[0]
-        image_gt_segment = res[1]
-        pred, emb, offset_y, z = res[2]
-        pred_2d, emb_2d = res[3]
+        res = self.model(inputs, images_gt.clone(), configs) # 调用模型进行预测
+        image_gt_instance_h = res[0]
+        image_gt_segment_h = res[1]
+        homograph_matrix = res[2]
+        pred, emb, offset_y, z = res[3]
+        pred_2d, emb_2d = res[4]
         if train:
-            ## 3d
+            ## 3d pred(8,1,200,48) gt_seg(8,1,200,48) gt_instance(8,1,200,48) emb(8,1,200,48)
             loss_seg = self.bce(pred, gt_seg) + self.iou_loss(torch.sigmoid(pred), gt_seg)  # 计算BEV分割损失和IoU损失
             loss_emb = self.poopoo(emb, gt_instance) # 计算嵌入向量损失
             loss_offset = self.bce_loss(gt_seg * torch.sigmoid(offset_y), gt_offset_y) # 计算偏移量损失
@@ -44,17 +49,24 @@ class Combine_Model_and_Loss(torch.nn.Module):
             loss_offset = 60 * loss_offset.unsqueeze(0) # 将偏移量损失转换成一维张量并乘以60
             loss_z = 30 * loss_z.unsqueeze(0) # 将高度损失转换成一维张量并乘以30
             ## 2d
-            # image_gt_instance = image_gt current camera 图像像素坐标系，尺寸与image相同，图片中只有车道线的信息，不同车道线不同颜色，
-            # image_gt_segment 与image_gt_instance唯一的不同是没有不同车道线的标注，只有0 1值，标注像素点是否是车道线。
-            # pred_2d
-            # emb_2d
-            loss_seg_2d = self.bce(pred_2d, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d), image_gt_segment)  # 计算2D分割损失和IoU损失
-            loss_emb_2d = self.poopoo(emb_2d, image_gt_instance) # 计算2D嵌入向量损失
+            # image_gt_segment_h(8,1,144,256) float32 = image_gt current camera 图像像素坐标系，尺寸与image相同，图片中只有车道线的信息，不同车道线不同颜色，(8,1,144,256)
+            # image_gt_segment_h(8,1,144,256) 与image_gt_instance唯一的不同是没有不同车道线的标注，只有0 1值，标注像素点是否是车道线。
+            # pred_2d (8,1,144,256) float32
+            # emb_2d (8,2,144,256)
+            loss_seg_2d = self.bce(pred_2d, image_gt_segment_h) + self.iou_loss(torch.sigmoid(pred_2d), image_gt_segment_h)  # 计算2D分割损失和IoU损失
+            loss_emb_2d = self.poopoo(emb_2d, image_gt_instance_h)  # 计算2D嵌入向量损失
             loss_total_2d = 3 * loss_seg_2d + 0.5 * loss_emb_2d  # 计算2D总损失
             loss_total_2d = loss_total_2d.unsqueeze(0)  # 将2D总损失转换成一维张量
-            return pred, loss_total, loss_total_2d, loss_offset, loss_z  # 返回预测结果和损失
+            # 计算H损失
+            # 将Virtual Image上prediction labels用H的逆矩阵变换回Image源图 pred_2d(8,1,144,256)
+            # pred_2d_h_inv = cv2.warpPerspective(pred_2d.clone().cpu().numpy(), homograph_matrix.clone().cpu().numpy(), # pred_2d
+            #                                     configs.output_2d_shape)  # output_2d_shape(144,256)
+            homograph_matrix_inv = torch.inverse(homograph_matrix)  # H^-1
+            pred_2d_h_inv = tgm.homography_warp(pred_2d, homograph_matrix_inv, configs.output_2d_shape, padding_mode="zeros")
+            loss_hg = self.bce(pred_2d_h_inv, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_h_inv), image_gt_segment)
+            return pred, loss_total, loss_total_2d, loss_offset, loss_z, loss_hg  # 返回预测结果和损失
         else:
-            return pred # 返回预测结果
+            return pred  # 返回预测结果
 
 # 训练一个epoch的函数
 def train_epoch(model, dataset, optimizer, configs, epoch):
@@ -63,7 +75,7 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
     losses_avg = {}
     '''image,image_gt_segment,image_gt_instance,ipm_gt_segment,ipm_gt_instance'''
     for idx, (
-    input_data, image_gt, gt_seg_data, gt_emb_data, offset_y_data, z_data) in enumerate(
+    input_data, image_gt, gt_seg_data, gt_emb_data, offset_y_data, z_data,image_gt_segment,image_gt_instance) in enumerate(
             dataset):
         # loss_back, loss_iter = forward_on_cuda(gpu, gt_data, input_data, loss, models)
         input_data = input_data.cuda()  # 将输入数据转移到GPU上
@@ -73,17 +85,20 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
         z_data = z_data.cuda() # 将高度标签转移到GPU上
         # image_gt_segment = image_gt_segment.cuda() # 将2D分割标签转移到GPU上
         # image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
-        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z = model(input_data,
+        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, loss_hg = model(input_data,
                                                                                image_gt,
                                                                                configs,
                                                                                gt_seg_data,
                                                                                gt_emb_data,
-                                                                               offset_y_data, z_data) # 正向传播
+                                                                               offset_y_data, z_data,
+                                                                                        image_gt_segment,
+                                                                                        image_gt_instance) # 正向传播
         loss_back_bev = loss_total_bev.mean()  # 计算BEV总损失的平均值
         loss_back_2d = loss_total_2d.mean() # 计算2D总损失的平均值
         loss_offset = loss_offset.mean() # 计算偏移量损失的平均值
         loss_z = loss_z.mean() # 计算高度损失的平均值
-        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z  # 计算总损失
+        loss_hg = loss_hg.mean() # 计算单应变换损失的平均值
+        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + loss_hg  # 计算总损失
         ''' caclute loss '''
         optimizer.zero_grad() # 清空梯度
         loss_back_total.backward()  # 反向传播计算梯度

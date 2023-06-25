@@ -8,7 +8,7 @@ from scipy.interpolate import interp1d
 from torch.utils.data import Dataset
 from utils.coord_util import ego2image,IPM2ego_matrix
 from utils.standard_camera_cpu import Standard_camera
-from albumentations.pytorch import ToTensorV2
+
 # 这段代码定义了两个PyTorch数据集，用于ApolloScape数据集：Apollo_dataset_with_offset和Apollo_dataset_with_offset_val。前者用于训练，生成带有车道偏移和z值的BEV地图，而后者用于验证，仅生成图像。
 
 '''
@@ -216,22 +216,14 @@ class Apollo_dataset_with_offset(Dataset):
         :return:
         '''
         image, image_gt, bev_gt, offset_y_map, z_map, cam_extrinsics, cam_intrinsic = self.get_seg_offset(idx)
-
-        # transformed = self.trans_image(image=image)
-        # image = transformed["image"]
-
-        # 不适用transformer，需要将图片转换为tensor
-        import torchvision.transforms as transforms
-        transf = transforms.ToTensor()
-        image = transf(image)  # tensor数据格式是torch(C,H,W)
-
-
-        # print(img_tensor.size())
-        ''' 2d gt'''
-        # image_gt = cv2.resize(image_gt, (self.output2d_size[1],self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
-        # image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
-        # image_gt_segment = torch.clone(image_gt_instance)
-        # image_gt_segment[image_gt_segment > 0] = 1
+        transformed = self.trans_image(image=image)
+        image = transformed["image"]
+        ''' 2d gt'''  # image_gt(1080,1920) -> (144,256)
+        image_gt = cv2.resize(image_gt, (self.output2d_size[1],self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
+        image_gt = torch.tensor(image_gt)
+        image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
+        image_gt_segment = torch.clone(image_gt_instance)
+        image_gt_segment[image_gt_segment > 0] = 1
         ''' 3d gt'''
         bev_gt_instance = torch.tensor(bev_gt).unsqueeze(0)  # h, w, c0
         bev_gt_offset = torch.tensor(offset_y_map).unsqueeze(0)
@@ -239,7 +231,7 @@ class Apollo_dataset_with_offset(Dataset):
         bev_gt_segment = torch.clone(bev_gt_instance)
         bev_gt_segment[bev_gt_segment > 0] = 1
         # return image, bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float(),image_gt_segment.float(),image_gt_instance.float()
-        return image, image_gt, bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float()
+        return image.float(), image_gt.float(), bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float(),image_gt_segment.float(),image_gt_instance.float()
 
 
     def get_camera_matrix(self,cam_pitch,cam_height):
