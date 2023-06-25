@@ -513,7 +513,7 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
         # hg_mtx_feat = self.down_pre(img)  # img (32,3,576,1024) hg_mtx_feat (32,32,18,32)
         # hg_mtx = self.hg(hg_mtx_feat)  # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
         hg_mtx = self.hg(img)  # img(8,1080,1920,3) hg_mtx(8,8)
-        print(hg_mtx[0])
+        # print(hg_mtx[0])
         # hg_mtx (8,8) -> (8,3,3)
         hg_mtx = torch.cat((hg_mtx, torch.ones(hg_mtx.shape[0], 1).cuda()), dim=1)
         hg_mtx = hg_mtx.view((hg_mtx.shape[0], 3, 3))  # hg_mtxs(16,3,3)

@@ -24,7 +24,7 @@ train_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthe
 test_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthetic_Dataset-master/data_splits/standard/val.json'
 data_base_path = '/home/houzm/datasets/apollo-3d-lane-synthetic/Apollo_Sim_3D_Lane_Release'
 
-model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0623"
+model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0624"
 
 input_shape = (576, 1024)
 output_2d_shape = (144, 256)
@@ -36,7 +36,7 @@ meter_per_pixel = 0.5  # grid size
 bev_shape = (int((x_range[1] - x_range[0]) / meter_per_pixel), int((y_range[1] - y_range[0]) / meter_per_pixel))
 
 loader_args = dict(
-    batch_size=16,
+    batch_size=8,
     num_workers=12,
     shuffle=True
 )
@@ -60,7 +60,7 @@ def model():
 epochs = 100
 optimizer = AdamW
 optimizer_params = dict(
-    lr=1e-5, betas=(0.9, 0.999), eps=1e-8,
+    lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
     weight_decay=1e-2, amsgrad=False
 )
 scheduler = CosineAnnealingLR
