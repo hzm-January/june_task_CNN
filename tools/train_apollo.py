@@ -68,18 +68,20 @@ class Combine_Model_and_Loss(torch.nn.Module):
             # pred_2d_h_inv = cv2.warpPerspective(pred_2d.clone().cpu().numpy(), homograph_matrix.clone().cpu().numpy(), # pred_2d
             #                                     configs.output_2d_shape)  # output_2d_shape(144,256)
             homograph_matrix_inv = torch.inverse(homograph_matrix)  # H^-1
-            # pred_2d_h_inv = tgm.homography_warp(pred_2d, homograph_matrix_inv, configs.output_2d_shape,
+            # pred_2d_h_invs = tgm.homography_warp(pred_2d, homograph_matrix_inv, configs.output_2d_shape,
             #                                     padding_mode="zeros")
             # pred_2d(4,1,144,256)
             pred_2d_h_invs = torch.zeros_like(pred_2d, dtype=torch.float).cuda()
             for i in range(pred_2d.shape[0]):
-                pred_2d_h_inv = cv2.warpPerspective(pred_2d[i].permute(1, 2, 0).detach().cpu().numpy(), homograph_matrix_inv[i].detach().cpu().numpy(),
-                                                (configs.output_2d_shape[1],configs.output_2d_shape[0]))
-                pred_2d_h_invs[i] = torch.tensor(pred_2d_h_inv, dtype=torch.float).unsqueeze(0).cuda()  # images (3,576,1024)
+                pred_2d_h_inv = cv2.warpPerspective(pred_2d[i].permute(1, 2, 0).detach().cpu().numpy(),
+                                                    homograph_matrix_inv[i].detach().cpu().numpy(),
+                                                    (configs.output_2d_shape[1], configs.output_2d_shape[0]))
+                pred_2d_h_invs[i] = torch.tensor(pred_2d_h_inv, dtype=torch.float).unsqueeze(
+                    0).cuda()  # images (3,576,1024)
 
             loss_hg = self.bce(pred_2d_h_invs, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_h_invs),
-                                                                                image_gt_segment)
-            return pred, loss_total, loss_total_2d, loss_offset, loss_z, loss_hg  # 返回预测结果和损失
+                                                                                 image_gt_segment)
+            return pred, loss_total, loss_total_2d, loss_offset, loss_z, loss_hg, homograph_matrix  # 返回预测结果和损失
         else:
             return pred  # 返回预测结果
 
@@ -102,14 +104,15 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
         z_data = z_data.cuda()  # 将高度标签转移到GPU上
         # image_gt_segment = image_gt_segment.cuda() # 将2D分割标签转移到GPU上
         # image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
-        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, loss_hg = model(input_data,
-                                                                                        image_gt,
-                                                                                        configs,
-                                                                                        gt_seg_data,
-                                                                                        gt_emb_data,
-                                                                                        offset_y_data, z_data,
-                                                                                        image_gt_segment,
-                                                                                        image_gt_instance)  # 正向传播
+        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, loss_hg, hg_matrix = model(input_data,
+                                                                                                   image_gt,
+                                                                                                   configs,
+                                                                                                   gt_seg_data,
+                                                                                                   gt_emb_data,
+                                                                                                   offset_y_data,
+                                                                                                   z_data,
+                                                                                                   image_gt_segment,
+                                                                                                   image_gt_instance)  # 正向传播
         loss_back_bev = loss_total_bev.mean()  # 计算BEV总损失的平均值
         loss_back_2d = loss_total_2d.mean()  # 计算2D总损失的平均值
         loss_offset = loss_offset.mean()  # 计算偏移量损失的平均值
@@ -121,16 +124,25 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
         loss_back_total.backward()  # 反向传播计算梯度
         optimizer.step()  # 更新模型参数
         if idx % 50 == 0:
-            print(idx, loss_back_bev.item(), '*' * 10)
-        if idx % 300 == 0:
             target = gt_seg_data.detach().cpu().numpy().ravel()  # 将BEV分割标签从GPU中取出并展平为一维数组
             pred = torch.sigmoid(prediction).detach().cpu().numpy().ravel()  # 将预测结果从GPU中取出并展平为一维数组
             f1_bev_seg = f1_score((target > 0.5).astype(np.int64), (pred > 0.5).astype(np.int64),
                                   zero_division=1)  # 计算F1分数
-            loss_iter = {"BEV Loss": loss_back_bev.item(), 'offset loss': loss_offset.item(), 'z loss': loss_z.item(),
-                         "F1_BEV_seg": f1_bev_seg}  # 计算各项损失和F1分数
+            loss_iter = {"【BEV Loss】": loss_back_bev.item(), '【offset loss】': loss_offset.item(),
+                         '【z loss】': loss_z.item(),
+                         "【F1_BEV_seg】": f1_bev_seg, '【h_inv loss】': loss_hg.item()}  # 计算各项损失和F1分数
             # losses_show = loss_iter
-            print(idx, loss_iter)
+            # print('-' * 80)
+            # 3d loss(bev loss) = 3 * loss_seg + 0.5 * loss_emb
+            # 2d loss = 3 * loss_seg_2d + 0.5 * loss_emb_2d
+            # loss_back_total = 3d loss + 0.5 * 2d loss + loss_offset + loss_z + loss_hg
+            print('| %3d | lr: %f | 2d+3d: %f | F1: %f | Offset: %f | Z: %f | 3d: %f | 2d: %f | H: %f |' % (
+                idx, optimizer.state_dict()['param_groups'][0]['lr'], loss_back_total.item(),
+                f1_bev_seg, loss_offset.item(), loss_z.item(),
+                loss_back_bev.item(), loss_back_2d.item(), loss_hg.item()))
+            # print('-' * 80)
+        if idx != 0 and idx % 700 == 0:
+            print([i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])
 
 
 # worker_fuction  加载配置文件
@@ -198,4 +210,7 @@ if __name__ == '__main__':
     warnings.filterwarnings("ignore")
     # worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py', gpu_id=[4,5])  # 调用worker_function函数，传入配置文件路径和GPU编号
     worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py',
-                    gpu_id=[6, 7])  # 调用worker_function函数，传入配置文件路径和GPU编号
+                    # gpu_id=[4, 5],
+                    gpu_id=[6, 7],
+                    checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0625_01/ep020.pth'
+                    )  # 调用worker_function函数，传入配置文件路径和GPU编号
