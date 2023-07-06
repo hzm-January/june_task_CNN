@@ -2,6 +2,9 @@ import sys
 
 import cv2
 import torchgeometry as tgm
+import kornia.geometry.transform as kgt
+import kornia.geometry.conversions as kgc
+import kornia.enhance as keh
 
 sys.path.append('/home/houzm/houzm/02_code/bev_lane_det-cnn')  # 添加模块搜索路径
 import torch
@@ -16,8 +19,9 @@ from sklearn.metrics import f1_score  # 导入F1分数计算函数
 import numpy as np
 import os
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "3,6"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
-os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 
 
 # 定义一个继承自nn.Module的类，将模型和损失函数组合在一起
@@ -67,21 +71,26 @@ class Combine_Model_and_Loss(torch.nn.Module):
             # 将Virtual Image上prediction labels用H的逆矩阵变换回Image源图 pred_2d(8,1,144,256)
             # pred_2d_h_inv = cv2.warpPerspective(pred_2d.clone().cpu().numpy(), homograph_matrix.clone().cpu().numpy(), # pred_2d
             #                                     configs.output_2d_shape)  # output_2d_shape(144,256)
-            homograph_matrix_inv = torch.inverse(homograph_matrix)  # H^-1
-            # pred_2d_h_invs = tgm.homography_warp(pred_2d, homograph_matrix_inv, configs.output_2d_shape,
-            #                                     padding_mode="zeros")
+            # homograph_matrix_inv = torch.inverse(homograph_matrix)  # H^-1
+            # homograph_matrix_inv = kgc.denormalize_homography(homograph_matrix_inv, (pred_2d.shape[2], pred_2d.shape[3]), (pred_2d.shape[2], pred_2d.shape[3]))
+            # pred_2d_h_invs = kgt.warp_perspective(pred_2d, homograph_matrix_inv, configs.output_2d_shape)
+            # pred_2d_h_invs = torch.rand(pred_2d_h_invs)
+            # mean = torch.zeros(1, inputs.shape[1])
+            # std = 255. * torch.ones(1, inputs.shape[1])
+            # pred_2d_h_invs = kgt.homography_warp(pred_2d, keh.denormalize(homograph_matrix_inv, mean, std), configs.output_2d_shape,
+            #                                     padding_mode="zeros", normalized_coordinates=False, normalized_homography=False)
             # pred_2d(4,1,144,256)
-            pred_2d_h_invs = torch.zeros_like(pred_2d, dtype=torch.float).cuda()
-            for i in range(pred_2d.shape[0]):
-                pred_2d_h_inv = cv2.warpPerspective(pred_2d[i].permute(1, 2, 0).detach().cpu().numpy(),
-                                                    homograph_matrix_inv[i].detach().cpu().numpy(),
-                                                    (configs.output_2d_shape[1], configs.output_2d_shape[0]))
-                pred_2d_h_invs[i] = torch.tensor(pred_2d_h_inv, dtype=torch.float).unsqueeze(
-                    0).cuda()  # images (3,576,1024)
+            # pred_2d_h_invs = torch.zeros_like(pred_2d, dtype=torch.float).cuda()
+            # for i in range(pred_2d.shape[0]):
+            #     pred_2d_h_inv = cv2.warpPerspective(pred_2d[i].permute(1, 2, 0).detach().cpu().numpy(),
+            #                                         homograph_matrix_inv[i].detach().cpu().numpy(),
+            #                                         (configs.output_2d_shape[1], configs.output_2d_shape[0]))
+            #     pred_2d_h_invs[i] = torch.tensor(pred_2d_h_inv, dtype=torch.float).unsqueeze(
+            #         0).cuda()  # images (3,576,1024)
 
-            loss_hg = self.bce(pred_2d_h_invs, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_h_invs),
-                                                                                 image_gt_segment)
-            return pred, loss_total, loss_total_2d, loss_offset, loss_z, loss_hg, homograph_matrix  # 返回预测结果和损失
+            # loss_hg = self.bce(pred_2d_h_invs, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_h_invs),
+            #                                                                      image_gt_segment)
+            return pred, loss_total, loss_total_2d, loss_offset, loss_z, homograph_matrix  # 返回预测结果和损失
         else:
             return pred  # 返回预测结果
 
@@ -104,7 +113,7 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
         z_data = z_data.cuda()  # 将高度标签转移到GPU上
         # image_gt_segment = image_gt_segment.cuda() # 将2D分割标签转移到GPU上
         # image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
-        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, loss_hg, hg_matrix = model(input_data,
+        prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, hg_matrix = model(input_data,
                                                                                                    image_gt,
                                                                                                    configs,
                                                                                                    gt_seg_data,
@@ -117,8 +126,7 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
         loss_back_2d = loss_total_2d.mean()  # 计算2D总损失的平均值
         loss_offset = loss_offset.mean()  # 计算偏移量损失的平均值
         loss_z = loss_z.mean()  # 计算高度损失的平均值
-        loss_hg = loss_hg.mean()  # 计算单应变换损失的平均值
-        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + loss_hg  # 计算总损失
+        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z  # 计算总损失
         ''' caclute loss '''
         optimizer.zero_grad()  # 清空梯度
         loss_back_total.backward()  # 反向传播计算梯度
@@ -130,19 +138,20 @@ def train_epoch(model, dataset, optimizer, configs, epoch):
                                   zero_division=1)  # 计算F1分数
             loss_iter = {"【BEV Loss】": loss_back_bev.item(), '【offset loss】': loss_offset.item(),
                          '【z loss】': loss_z.item(),
-                         "【F1_BEV_seg】": f1_bev_seg, '【h_inv loss】': loss_hg.item()}  # 计算各项损失和F1分数
+                         "【F1_BEV_seg】": f1_bev_seg}  # 计算各项损失和F1分数
             # losses_show = loss_iter
             # print('-' * 80)
             # 3d loss(bev loss) = 3 * loss_seg + 0.5 * loss_emb
             # 2d loss = 3 * loss_seg_2d + 0.5 * loss_emb_2d
             # loss_back_total = 3d loss + 0.5 * 2d loss + loss_offset + loss_z + loss_hg
-            print('| %3d | lr: %f | 2d+3d: %f | F1: %f | Offset: %f | Z: %f | 3d: %f | 2d: %f | H: %f |' % (
-                idx, optimizer.state_dict()['param_groups'][0]['lr'], loss_back_total.item(),
+            print('| %3d | Hlr: %f | Blr: %f | 2d+3d: %f | F1: %f | Offset: %f | Z: %f | 3d: %f | 2d: %f |' % (
+                idx, optimizer.state_dict()['param_groups'][0]['lr'], optimizer.state_dict()['param_groups'][1]['lr'], loss_back_total.item(),
                 f1_bev_seg, loss_offset.item(), loss_z.item(),
-                loss_back_bev.item(), loss_back_2d.item(), loss_hg.item()))
+                loss_back_bev.item(), loss_back_2d.item()))
             # print('-' * 80)
-        if idx != 0 and idx % 700 == 0:
             print([i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])
+        # if idx != 0 and idx % 700 == 0:
+        #     print([i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])
 
 
 # worker_fuction  加载配置文件
@@ -196,7 +205,7 @@ def worker_function(config_file, gpu_id, checkpoint_path=None):
     #         return
 
     for epoch in range(configs.epochs):
-        print('*' * 100, epoch)
+        print('*' * 150, epoch)
         train_epoch(model, train_loader, optimizer, configs, epoch)
         scheduler.step()  # 更新学习率
         save_model_dp(model, optimizer, configs.model_save_path, 'ep%03d.pth' % epoch)  # 保存模型
@@ -210,7 +219,8 @@ if __name__ == '__main__':
     warnings.filterwarnings("ignore")
     # worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py', gpu_id=[4,5])  # 调用worker_function函数，传入配置文件路径和GPU编号
     worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py',
+                    gpu_id=[3, 6],
                     # gpu_id=[4, 5],
-                    gpu_id=[6, 7],
-                    checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0625_01/ep020.pth'
+                    # gpu_id=[6, 7],
+                    # checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0627_02/latest.pth'
                     )  # 调用worker_function函数，传入配置文件路径和GPU编号

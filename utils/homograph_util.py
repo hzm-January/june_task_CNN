@@ -24,13 +24,16 @@ def homograph(images, images_gt, hg_mtxs, configs):
     mean = torch.zeros(1, img_s32_c)
     std = 255. * torch.ones(1, img_s32_c)
 
-    # hg_mtxs = kgc.denormalize_homography(hg_mtxs, (img_s32_h, img_s32_w), (img_s32_h, img_s32_w))
-    images_warped = kgt.homography_warp(images.clone(), hg_mtxs, img_vt_s32_hg_shape)
+    hg_mtxs_image = kgc.denormalize_homography(hg_mtxs, (img_s32_h, img_s32_w), (img_s32_h, img_s32_w))
+    images_warped = kgt.warp_perspective(images.clone(), hg_mtxs_image, img_vt_s32_hg_shape)
+    hg_mtxs_image_gt = kgc.denormalize_homography(hg_mtxs, configs.output_2d_shape, configs.output_2d_shape)
+
     # images = images.permute(0, 3, 1, 2)
     if images_gt is not None:
         images_gt_warped = images_gt.clone().unsqueeze(1)
-        images_gt_warped = kgt.homography_warp(images_gt_warped, hg_mtxs, configs.output_2d_shape)
+        images_gt_warped = kgt.warp_perspective(images_gt_warped, hg_mtxs_image_gt, configs.output_2d_shape)
         # images_gt = images_gt.squeeze(1)
+        images_gt_warped = torch.round(images_gt_warped)
         for i in range(batch_size):
             image_gt = images_gt_warped[i]
             ''' 2d gt '''

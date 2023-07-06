@@ -24,9 +24,9 @@ train_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthe
 test_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthetic_Dataset-master/data_splits/standard/val.json'
 data_base_path = '/home/houzm/datasets/apollo-3d-lane-synthetic/Apollo_Sim_3D_Lane_Release'
 
-model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0627_01"
+model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0706/01"
 
-input_shape = (576, 1024)
+input_shape = (576, 1024) # height width
 output_2d_shape = (144, 256)
 
 ''' BEV range '''
@@ -51,20 +51,21 @@ vc_config['vc_image_shape'] = (1920, 1080)
 
 ''' model '''
 
-
+# load_optimizer = False
+load_optimizer = True
 def model():
     return BEV_LaneDet(bev_shape=bev_shape, output_2d_shape=output_2d_shape, train=True)
 
 
 ''' optimizer '''
-epochs = 20
+epochs = 100
 optimizer = AdamW
 optimizer_params_hg = dict(
-    lr=1e-10, betas=(0.9, 0.999), eps=1e-8,
+    lr=1e-4, betas=(0.9, 0.999), eps=1e-8,
     weight_decay=1e-2, amsgrad=False
 )
 optimizer_params = dict(
-    lr=1e-10, betas=(0.9, 0.999), eps=1e-8,
+    lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
     weight_decay=1e-2, amsgrad=False
 )
 scheduler = CosineAnnealingLR

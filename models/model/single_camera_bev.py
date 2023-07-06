@@ -347,6 +347,7 @@ class HG_CNN(nn.Module):
         self.fc = nn.Sequential(
             nn.Dropout(0.5),
             nn.Linear(32 * 18 * 32, 1024),
+            nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(1024, 8)
@@ -517,6 +518,15 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
         # hg_mtx (8,8) -> (8,3,3)
         hg_mtx = torch.cat((hg_mtx, torch.ones(hg_mtx.shape[0], 1).cuda()), dim=1)
         hg_mtx = hg_mtx.view((hg_mtx.shape[0], 3, 3))  # hg_mtxs(16,3,3)
+
+        # src = hg_mtx.unsqueeze(1)
+        # target = torch.zeros(8, 9).unsqueeze(1)
+        # src = torch.cat((src, torch.ones(8, 1, 1)), dim=2)
+        # H_indices = torch.tensor([0, 1, 2, 4, 5, 7, 8]).cuda()
+        # H_indices = H_indices.unsqueeze(0).unsqueeze(1).repeat(img.shape[0], 1, 1)
+        # target.scatter_(dim=2, index=H_indices, src=src)
+        # hg_mtx = target.view((8, 3, 3))
+
         img_vt, image_gt_instance, image_gt_segment = homograph(img, img_gt, hg_mtx, configs)
         img_vt_s32 = self.bb(img_vt)  # img_vt (32,3,576,1024) img_vt_s32 (32,512,18,32)
         img_vt_s64 = self.down(img_vt_s32)  # img_vt_s32 (32,512,18,32) img_s64 (32,1024,9,16)
