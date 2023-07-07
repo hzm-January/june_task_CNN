@@ -113,7 +113,7 @@ class NDPushPullLoss(nn.Module):
     """
 
     def __init__(self, var_weight, dist_weight, margin_var, margin_dist, ignore_label):
-        super(NDPushPullLoss, self).__init__()
+        super(NDPushPullLoss, self).__init__()#1.0, 1., 1.0, 5.0, 200
         self.var_weight = var_weight
         self.dist_weight = dist_weight
         self.margin_var = margin_var
@@ -121,25 +121,25 @@ class NDPushPullLoss(nn.Module):
         self.ignore_label = ignore_label
 
     def forward(self, featmap, gt):
-        assert (featmap.shape[2:] == gt.shape[2:])
+        assert (featmap.shape[2:] == gt.shape[2:]) # featmap (4,2,144,256) gt (4,1,144,256)
         pull_loss = []
         push_loss = []
         C = gt[gt < self.ignore_label].max().item()
         # [B, N, H, W] = fm, [B, 1, H, W]  = gt
         # TODO not an optimized implement here. Should not expand B dim.
-        for b in range(featmap.shape[0]):
-            bfeat = featmap[b]
-            bgt = gt[b][0]
+        for b in range(featmap.shape[0]):  # featmap.shape[0] is batch size
+            bfeat = featmap[b]  # 取出第一张图像预测结果数据
+            bgt = gt[b][0]  # 取出第一张图像的标签
             instance_centers = {}
             for i in range(1, int(C) + 1):
-                instance_mask = bgt == i
+                instance_mask = bgt == i  # 每条车道线上的元素都用i表示，取出所有等于i的像素值，都标记为true，其余像素值标记为false，相当于提取一条编号为i的车道线。
                 if instance_mask.sum() == 0:
-                    continue
-                pos_featmap = bfeat[:, instance_mask].T.contiguous()  #  mask_num x N
+                    continue  # 如果bgt中所有像素都与i不相等，跳出，提取等于i+1的下一条车道线的像素值
+                pos_featmap = bfeat[:, instance_mask].T.contiguous()  #  mask_num x N 选出所有通道中在instance_mask对应位置为true的所有像素，相当于提取当前车道线的所有标记点的位置信息。
                 instance_center = pos_featmap.mean(dim=0, keepdim=True)  # N x mask_num (mean)-> N x 1
-                instance_centers[i] = instance_center
+                instance_centers[i] = instance_center  # instance_mask (200,48) bfeat(2,200,48) bfeat[:, instance_mask] (2,138) pos_featmap (138,2) instance_center(1,2)
                 # TODO xxx
-                instance_loss = torch.clamp(torch.cdist(pos_featmap, instance_center) - self.margin_var, min=0.0)
+                instance_loss = torch.clamp(torch.cdist(pos_featmap, instance_center) - self.margin_var, min=0.0)  # instance_loss(138,1)
                 pull_loss.append(instance_loss.mean())
             for i in range(1, int(C) + 1):
                 for j in range(1, int(C) + 1):
