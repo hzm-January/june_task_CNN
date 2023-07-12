@@ -5,6 +5,7 @@ import torchgeometry as tgm
 import kornia.geometry.transform as kgt
 import kornia.geometry.conversions as kgc
 import kornia.enhance as keh
+import torch.nn.functional as F
 
 sys.path.append('/home/houzm/houzm/02_code/bev_lane_det-cnn')  # 添加模块搜索路径
 import torch
@@ -19,8 +20,8 @@ from sklearn.metrics import f1_score  # 导入F1分数计算函数
 import numpy as np
 import os
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "3,4"
-# os.environ["CUDA_VISIBLE_DEVICES"] = "5,6"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "3,4"
+os.environ["CUDA_VISIBLE_DEVICES"] = "5,6"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "6,7"
 
@@ -72,7 +73,12 @@ class Combine_Model_and_Loss(torch.nn.Module):
             # 将Virtual Image上prediction labels用H的逆矩阵变换回Image源图 pred_2d(8,1,144,256)
             # pred_2d_h_inv = cv2.warpPerspective(pred_2d.clone().cpu().numpy(), homograph_matrix.clone().cpu().numpy(), # pred_2d
             #                                     configs.output_2d_shape)  # output_2d_shape(144,256)
-            homograph_matrix_inv = torch.inverse(homograph_matrix)  # H^-1
+            homograph_matrix_inv = torch.inverse(homograph_matrix)
+            # homograph_matrix_inv = homograph_matrix_inv.reshape(-1, 9)
+            homograph_matrix_inv = F.normalize(homograph_matrix_inv, dim=(1, 2), p=2, eps=1e-6)# H^-1
+            # homograph_matrix_inv = homograph_matrix_inv.reshape()
+            # homograph_matrix_inv = keh.normalize(homograph_matrix_inv.unsqueeze(0), mean=homograph_matrix_inv.mean(dim=(1, 2)), std=homograph_matrix_inv.var(dim=(1, 2))).squeeze(0)
+            # homograph_matrix_inv = kgc.normalize_homography(homograph_matrix_inv,(pred_2d.shape[2], pred_2d.shape[3]), (pred_2d.shape[2], pred_2d.shape[3]))
             homograph_matrix_inv = kgc.denormalize_homography(homograph_matrix_inv, (pred_2d.shape[2], pred_2d.shape[3]), (pred_2d.shape[2], pred_2d.shape[3]))
             pred_2d_h_invs = kgt.warp_perspective(pred_2d, homograph_matrix_inv, configs.output_2d_shape)
             emb_2d_h_invs = kgt.warp_perspective(emb_2d, homograph_matrix_inv, configs.output_2d_shape)
@@ -239,9 +245,9 @@ if __name__ == '__main__':
     warnings.filterwarnings("ignore")
     # worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py', gpu_id=[4,5])  # 调用worker_function函数，传入配置文件路径和GPU编号
     worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py',
-                    gpu_id=[3, 4],
-                    # gpu_id=[5, 6],
+                    # gpu_id=[3, 4],
+                    gpu_id=[5, 6],
                     # gpu_id=[4, 5],
                     # gpu_id=[6, 7],
-                    # checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0627_02/latest.pth'
+                    # checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0708/02/latest.pth'
                     )  # 调用worker_function函数，传入配置文件路径和GPU编号

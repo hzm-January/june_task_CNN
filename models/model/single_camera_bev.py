@@ -3,7 +3,7 @@ import torch
 import torchvision as tv
 from torch import nn
 from utils.homograph_util import homograph
-
+import torch.nn.functional as F
 
 def naive_init_module(mod):
     for m in mod.modules():
@@ -350,7 +350,8 @@ class HG_CNN(nn.Module):
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1024, 8)
+            nn.Linear(1024, 8),
+            # nn.Tanh()
         )
         hg_mlp_init_module(self.layer1)
         hg_mlp_init_module(self.layer2)
@@ -516,6 +517,7 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
         hg_mtx = self.hg(img)  # img(8,1080,1920,3) hg_mtx(8,8)
         # print(hg_mtx[0])
         # hg_mtx (8,8) -> (8,3,3)
+
         hg_mtx = torch.cat((hg_mtx, torch.ones(hg_mtx.shape[0], 1).cuda()), dim=1)
         hg_mtx = hg_mtx.view((hg_mtx.shape[0], 3, 3))  # hg_mtxs(16,3,3)
 

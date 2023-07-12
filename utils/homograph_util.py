@@ -3,9 +3,9 @@ import torch
 import numpy as np
 import torchgeometry as tgm
 import kornia.geometry.transform as kgt
-# import kornia.enhance as keh
+import kornia.enhance as keh
 import kornia.geometry.conversions as kgc
-
+import torch.nn.functional as F
 def homograph(images, images_gt, hg_mtxs, configs):
     # images(16,3,576,1024) img_s32 (16,512,18,32) images_gt (16,1280,1920) hg_mtxs(16,9)
     batch_size = images.shape[0]
@@ -21,9 +21,9 @@ def homograph(images, images_gt, hg_mtxs, configs):
     # imgs_vt_s32 = torch.zeros_like(images)  # (16,3,576,1024)
     # images = images.permute(0,2, 3, 1)  # (bz,576,1024,3)
     # image = cv2.warpPerspective(image.clone().cpu().numpy(), hg_mtx.clone().cpu().numpy(), img_vt_s32_hg_shape)
-    mean = torch.zeros(1, img_s32_c)
-    std = 255. * torch.ones(1, img_s32_c)
-
+    # hg_mtxs = keh.normalize(hg_mtxs.unsqueeze(0), mean=hg_mtxs.mean(dim=(1, 2)), std=hg_mtxs.std(dim=(1, 2))).squeeze(0)
+    # hg_mtxs = hg_mtxs-mean/std
+    hg_mtxs = F.normalize(hg_mtxs, dim=(1, 2), p=2, eps=1e-6)  # H^-1
     hg_mtxs_image = kgc.denormalize_homography(hg_mtxs, (img_s32_h, img_s32_w), (img_s32_h, img_s32_w))
     images_warped = kgt.warp_perspective(images.clone(), hg_mtxs_image, img_vt_s32_hg_shape)
     hg_mtxs_image_gt = kgc.denormalize_homography(hg_mtxs, configs.output_2d_shape, configs.output_2d_shape)

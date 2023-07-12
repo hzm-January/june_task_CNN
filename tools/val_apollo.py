@@ -1,5 +1,5 @@
 import os
-gpu_id = [5]
+gpu_id = [4]
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = ','.join([str(i) for i in gpu_id])
 import sys
@@ -18,7 +18,7 @@ from utils.util_val.val_offical import LaneEval
 from models.model.single_camera_bev import *
 
 
-model_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0616_2/ep230.pth' #model path of verification
+model_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0711/01/ep199.pth' #model path of verification
 
 ''' parameter from config '''
 config_file = '/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py'
@@ -33,7 +33,7 @@ meter_per_pixel = configs.meter_per_pixel
 post_conf = 0.9 # Minimum confidence on the segmentation map for clustering
 post_emb_margin = 6.0 # embeding margin of different clusters
 post_min_cluster_size = 15 # The minimum number of points in a cluster
-tmp_save_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/validate/0617/' #tmp path for save intermediate result
+tmp_save_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/validate/0711/01/ep199' #tmp path for save intermediate result
 
 class PostProcessDataset(Dataset):
     def __init__(self, model_res_save_path, postprocess_save_path,test_json_paths):
@@ -59,7 +59,7 @@ class PostProcessDataset(Dataset):
         return len(self.valid_data)
 
     def __getitem__(self, item):
-        loaded = np.load(os.path.join(self.model_res_save_path, self.valid_data[item]))
+        loaded = np.load(os.path.join(self.model_res_save_path, self.valid_data[item]))  # loaded (1,12)
         prediction = (loaded[:, 0:1, :, :], loaded[:, 1:3, :, :])
         offset_y = loaded[:, 3:4, :, :][0][0]
         z_pred = loaded[:, 4:5, :, :][0][0]
@@ -106,7 +106,7 @@ def val():
         image,bn_name = item
         image = image.cuda()
         with torch.no_grad():
-            pred_ = model(image, configs=configs)[2]
+            pred_ = model(image, configs=configs)[3]  # pred_(16,3,3)
             seg = pred_[0].detach().cpu()
             embedding = pred_[1].detach().cpu()
             offset_y = torch.sigmoid(pred_[2]).detach().cpu()
