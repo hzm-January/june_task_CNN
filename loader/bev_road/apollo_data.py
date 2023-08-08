@@ -291,18 +291,18 @@ class Apollo_dataset_with_offset_val(Dataset):
         name_list = info_dict['raw_file'].split('/')
         image_path = os.path.join(self.dataset_base_dir, 'images', name_list[-2], name_list[-1])
         image = cv2.imread(image_path)
-
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # 修正图片颜色
         # caculate camera parameter
         cam_height, cam_pitch = info_dict['cam_height'], info_dict['cam_pitch']
         project_g2c, camera_k = self.get_camera_matrix(cam_pitch, cam_height)
         project_c2g = np.linalg.inv(project_g2c)
 
         ''' virtual camera '''
-        if self.use_virtual_camera:
-            sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
-                                 camera_k, project_c2g, image.shape[:2])
-            trans_matrix = sc.get_matrix(height=0)
-            image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
+        # if self.use_virtual_camera:
+        #     sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
+        #                          camera_k, project_c2g, image.shape[:2])
+        #     trans_matrix = sc.get_matrix(height=0)
+        #     image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
         
         transformed = self.trans_image(image=image)
         image = transformed["image"]

@@ -258,10 +258,11 @@ class OpenLane_dataset_with_offset(Dataset):
 
         image = transformed["image"]
         ''' 2d gt '''
-        # image_gt = cv2.resize(image_gt, (self.output2d_size[1], self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
-        # image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
-        # image_gt_segment = torch.clone(image_gt_instance)
-        # image_gt_segment[image_gt_segment > 0] = 1
+        image_gt = cv2.resize(image_gt, (self.output2d_size[1], self.output2d_size[0]), interpolation=cv2.INTER_NEAREST)
+        image_gt = torch.tensor(image_gt)
+        image_gt_instance = torch.tensor(image_gt).unsqueeze(0)  # h, w, c
+        image_gt_segment = torch.clone(image_gt_instance)
+        image_gt_segment[image_gt_segment > 0] = 1
         ''' 3d gt '''
         ipm_gt_instance = torch.tensor(ipm_gt).unsqueeze(0)  # h, w, c0
         ipm_gt_offset = torch.tensor(offset_y_map).unsqueeze(0)
@@ -269,7 +270,7 @@ class OpenLane_dataset_with_offset(Dataset):
         ipm_gt_segment = torch.clone(ipm_gt_instance)
         ipm_gt_segment[ipm_gt_segment > 0] = 1
         # return image, ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float(), image_gt_segment.float(), image_gt_instance.float()
-        return image, image_gt, ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float()
+        return image.float(), image_gt.float(), ipm_gt_segment.float(), ipm_gt_instance.float(), ipm_gt_offset.float(), ipm_gt_z.float(),image_gt_segment.float(),image_gt_instance.float()
 
     def __len__(self):
         return len(self.cnt_list)
@@ -318,11 +319,11 @@ class OpenLane_dataset_with_offset_val(Dataset):
 
         cam_intrinsic = np.array(gt['intrinsic'])
 
-        if self.use_virtual_camera:
-            sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, self.vc_image_shape,
-                                 cam_intrinsic, cam_extrinsics, (image.shape[0], image.shape[1]))
-            trans_matrix = sc.get_matrix(height=0)
-            image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
+        # if self.use_virtual_camera:
+        #     sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, self.vc_image_shape,
+        #                          cam_intrinsic, cam_extrinsics, (image.shape[0], image.shape[1]))
+        #     trans_matrix = sc.get_matrix(height=0)
+        #     image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
 
 
         transformed = self.trans_image(image=image)

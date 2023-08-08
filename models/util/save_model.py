@@ -18,7 +18,7 @@ def save_model(net, optimizer, save_path, name):
         torch.save(state, model_path)
 
 
-def save_model_dp(net, optimizer, save_path, name):
+def save_model_dp(net, optimizer, scheduler, save_path, name):
     """ save current models
     """
     if not os.path.exists(save_path):
@@ -27,5 +27,7 @@ def save_model_dp(net, optimizer, save_path, name):
     torch.save({
         "model_state": net.module.state_dict(),
         "optimizer_state": optimizer.state_dict() if optimizer else None,
+        # 'epoch': epoch,
+        'scheduler_state': scheduler.state_dict() if scheduler else None
     }, model_path)
     print("Model saved as %s" % model_path)

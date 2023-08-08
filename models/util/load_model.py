@@ -54,21 +54,35 @@ from torch.optim.lr_scheduler import _LRScheduler
 第三十二行 `return model` 是返回神经网络模型。
 '''
 
-def load_checkpoint(checkpoint, net, optimizer=None, map_loc="cuda"):
+def load_checkpoint(checkpoint, net, optimizer=None, scheduler=None, map_loc="cuda", resume_scheduler=False):
     sd = torch.load(checkpoint, map_location=map_loc)
     net.load_state_dict(sd['model_state'])
-    if optimizer and sd['optimizer_state']:
-        optimizer.load_state_dict(sd['optimizer_state'])
+    if optimizer:
+        # if sd['epoch']:
+        if resume_scheduler and 'scheduler_state' in sd and sd['scheduler_state']:
+            scheduler.load_state_dict(sd['scheduler_state'])
+            # for param_group in optimizer.param_groups:
+            #     param_group['lr'] = sd['scheduler']
+            # 'epoch': epoch,
+            # 'lr': scheduler.state_dict()
+        if sd['optimizer_state']:
+            optimizer.load_state_dict(sd['optimizer_state'])
+            if resume_scheduler and 'scheduler_state' in sd and sd['scheduler_state']:
+                for i in range(len(optimizer.param_groups)):
+                    optimizer.param_groups[i]['lr'] = sd['scheduler_state']['_last_lr'][i]
+            else:
+                for i in range(len(optimizer.param_groups)):
+                    optimizer.param_groups[i]['lr'] = scheduler.base_lrs[i]
     return sd
 
 
 def resume_training(checkpoint: Dict,
                     model: nn.Module,
                     optimizer: torch.optim.Optimizer,
-                    scheduler: _LRScheduler):
+                    scheduler: _LRScheduler, resume_scheduler):
     # Load checkpoint
     print("Load checkpoint")
-    sd = load_checkpoint(checkpoint, model, optimizer)
+    sd = load_checkpoint(checkpoint, model, optimizer, scheduler, resume_scheduler=resume_scheduler)
     # TODO: Fix warning
     # scheduler.step(sd['epoch'])
 

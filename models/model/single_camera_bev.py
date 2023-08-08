@@ -288,9 +288,9 @@ class Residual(nn.Module):
 
         out += identity
         return self.relu(out)
-class HG_CNN(nn.Module):
+class HG_MLP(nn.Module):
     def __init__(self):
-        super(HG_CNN, self).__init__()
+        super(HG_MLP, self).__init__()
         self.layer1 = nn.Sequential(
             nn.Conv2d(3, 6, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(6),
@@ -370,30 +370,6 @@ class HG_CNN(nn.Module):
         out = out.contiguous().view(x.size(0), -1)
         out = self.fc(out)
         return out  # out(8,8)
-class HG_MLP(nn.Module): # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
-    def __init__(self, image_featmap_size, space_featmap_size):
-        super(HG_MLP, self).__init__()
-        ic, ih, iw = image_featmap_size  # s32transformer:(32, 18, 32)
-        sc, sh, sw = space_featmap_size  # s32transformer:(1, 3, 3)
-        self.image_featmap_size = image_featmap_size
-        self.space_featmap_size = space_featmap_size
-        self.fc_transform = nn.Sequential(
-            nn.Linear(ih * iw, sh * sw),  # ih*iw=18x32=576 sh*sw=3x3=9
-            nn.ReLU(),
-            nn.Linear(sh * sw, sh * sw),  # sh*sw=3x3=9 sh*sw=3x3=9
-        )
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels=ic, out_channels=sc, kernel_size=1 * 1, stride=1, bias=False),
-            nn.BatchNorm2d(sc),
-            nn.ReLU(), )
-    def forward(self, x):  # x(32,32,18,32)
-        x = x.view(list(x.size()[:2]) + [self.image_featmap_size[1] * self.image_featmap_size[2], ])  # B,C,H*W x(32,32,576)
-        bev_view = self.fc_transform(x)  # x(32,32,576) bev_view(32,32,9)
-        bev_view = bev_view.view(list(bev_view.size()[:2]) + [self.space_featmap_size[1], self.space_featmap_size[2]])  # bev_view(32,32,3,3)
-        # bev_view = self.conv1(bev_view)
-        bev_view = bev_view.mean(1)
-        bev_view = bev_view.view(list(bev_view.size()[:1]) + [self.space_featmap_size[1]*self.space_featmap_size[2]])  # bev_view(32,9)
-        return bev_view
 # model
 # ResNet34 骨干网络 (self.bb)，在 ImageNet 上进行预训练。
 # 一个下采样层 (self.down)，用于减小特征图的空间维度。
@@ -403,92 +379,10 @@ class HG_MLP(nn.Module): # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
 class BEV_LaneDet(nn.Module):  # BEV-LaneDet
     def __init__(self, bev_shape, output_2d_shape, train=True):
         super(BEV_LaneDet, self).__init__()
-
-        ''' down pre '''
-        self.down_pre = naive_init_module(
-            nn.Sequential(
-                Residual(
-                    module=nn.Sequential(
-                        nn.Conv2d(3, 6, kernel_size=3, stride=2, padding=1),  # S2
-                        nn.BatchNorm2d(6),
-                        nn.ReLU(),
-                        nn.Conv2d(6, 6, kernel_size=3, stride=1, padding=1),
-                        nn.BatchNorm2d(6)
-                    ),
-                    downsample=nn.Conv2d(3, 6, kernel_size=3, stride=2, padding=1),
-                ),
-                Residual(
-                    module=nn.Sequential(
-                        nn.Conv2d(6, 12, kernel_size=3, stride=2, padding=1),  # S4
-                        nn.BatchNorm2d(12),
-                        nn.ReLU(),
-                        nn.Conv2d(12, 12, kernel_size=3, stride=1, padding=1),
-                        nn.BatchNorm2d(12)
-                    ),
-                    downsample=nn.Conv2d(6, 12, kernel_size=3, stride=2, padding=1),
-                ),
-                Residual(
-                    module=nn.Sequential(
-                        nn.Conv2d(12, 24, kernel_size=3, stride=2, padding=1),  # S8
-                        nn.BatchNorm2d(24),
-                        nn.ReLU(),
-                        nn.Conv2d(24, 24, kernel_size=3, stride=1, padding=1),
-                        nn.BatchNorm2d(24)
-                    ),
-                    downsample=nn.Conv2d(12, 24, kernel_size=3, stride=2, padding=1),
-                ),
-                Residual(
-                    module=nn.Sequential(
-                        nn.Conv2d(24, 48, kernel_size=3, stride=2, padding=1),  # S16
-                        nn.BatchNorm2d(48),
-                        nn.ReLU(),
-                        nn.Conv2d(48, 48, kernel_size=3, stride=1, padding=1),
-                        nn.BatchNorm2d(48)
-                    ),
-                    downsample=nn.Conv2d(24, 48, kernel_size=3, stride=2, padding=1),
-                ),
-                Residual(
-                    module=nn.Sequential(
-                        nn.Conv2d(48, 96, kernel_size=3, stride=2, padding=1),  # S32
-                        nn.BatchNorm2d(96),
-                        nn.ReLU(),
-                        nn.Conv2d(96, 96, kernel_size=3, stride=1, padding=1),
-                        nn.BatchNorm2d(96)
-                    ),
-                    downsample=nn.Conv2d(48, 96, kernel_size=3, stride=2, padding=1),
-                ),
-                # Residual(
-                #     module=nn.Sequential(
-                #         nn.Conv2d(96, 128, kernel_size=3, stride=2, padding=1),  # S64
-                #         nn.BatchNorm2d(128),
-                #         nn.ReLU(),
-                #         nn.Conv2d(128, 128, kernel_size=3, stride=1, padding=1),
-                #         nn.BatchNorm2d(128)
-                #     ),
-                #     downsample=nn.Conv2d(96, 128, kernel_size=3, stride=2, padding=1),
-                # ),
-                nn.Conv2d(96, 32, kernel_size=3, stride=1, padding=1),
-                nn.ReLU()
-            ))
-
         self.head = InstanceEmbedding(32, 2)
         naive_init_module(self.head)
-        # self.bb_pre = nn.Sequential(*list(tv.models.resnet18(pretrained=True).children())[:-2])
         ''' backbone '''
-        self.bb = nn.Sequential(*list(tv.models.resnet18(pretrained=True).children())[:-2])
-        ''' HomograpNet '''
-
-        # self.hg = nn.Sequential( #
-        #     # nn.Flatten(),
-        #     nn.Linear(in_features=32 * 18 * 32, out_features=512, bias=True),
-        #     nn.ReLU(),
-        #     nn.Linear(in_features=512, out_features=256, bias=True),
-        #     nn.ReLU(),
-        #     nn.Linear(in_features=256, out_features=256, bias=True),
-        #     nn.ReLU(),
-        #     nn.Linear(in_features=256, out_features=9, bias=True)
-        # )
-
+        self.bb = nn.Sequential(*list(tv.models.resnet34(pretrained=True).children())[:-2])
         self.down = naive_init_module(
             Residual(
                 module=nn.Sequential(
@@ -502,8 +396,8 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
                 downsample=nn.Conv2d(512, 1024, kernel_size=3, stride=2, padding=1),
             )
         )
-        # self.hg = HG_MLP((32, 18, 32), (1, 3, 3))  # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
-        self.hg = HG_CNN()  # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
+        self.hg = HG_MLP()  # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
+        self.hg_util = homograph
         self.s32transformer = FCTransform_((512, 18, 32), (256, 25, 5))
         self.s64transformer = FCTransform_((1024, 9, 16), (256, 25, 5))
         self.lane_head = LaneHeadResidual_Instance_with_offset_z(bev_shape, input_channel=512)
@@ -512,24 +406,15 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
             self.lane_head_2d = LaneHeadResidual_Instance(output_2d_shape, input_channel=512)
 
     def forward(self, img, img_gt=None, configs=None):  # img (32,3,576,1024)  img_gt (32,1080,1920)
-        # hg_mtx_feat = self.down_pre(img)  # img (32,3,576,1024) hg_mtx_feat (32,32,18,32)
-        # hg_mtx = self.hg(hg_mtx_feat)  # hg_mtx_feat (32,32,18,32) hg_mtx(32,9)
         hg_mtx = self.hg(img)  # img(8,1080,1920,3) hg_mtx(8,8)
-        # print(hg_mtx[0])
-        # hg_mtx (8,8) -> (8,3,3)
 
+        # hg_mtx (8,8) -> (8,3,3)
+        hg_mtx = F.normalize(hg_mtx, dim=1, p=2, eps=1e-6)  # H^-1
         hg_mtx = torch.cat((hg_mtx, torch.ones(hg_mtx.shape[0], 1).cuda()), dim=1)
         hg_mtx = hg_mtx.view((hg_mtx.shape[0], 3, 3))  # hg_mtxs(16,3,3)
 
-        # src = hg_mtx.unsqueeze(1)
-        # target = torch.zeros(8, 9).unsqueeze(1)
-        # src = torch.cat((src, torch.ones(8, 1, 1)), dim=2)
-        # H_indices = torch.tensor([0, 1, 2, 4, 5, 7, 8]).cuda()
-        # H_indices = H_indices.unsqueeze(0).unsqueeze(1).repeat(img.shape[0], 1, 1)
-        # target.scatter_(dim=2, index=H_indices, src=src)
-        # hg_mtx = target.view((8, 3, 3))
+        img_vt, image_gt_instance, image_gt_segment = self.hg_util(img, img_gt, hg_mtx, configs)
 
-        img_vt, image_gt_instance, image_gt_segment = homograph(img, img_gt, hg_mtx, configs)
         img_vt_s32 = self.bb(img_vt)  # img_vt (32,3,576,1024) img_vt_s32 (32,512,18,32)
         img_vt_s64 = self.down(img_vt_s32)  # img_vt_s32 (32,512,18,32) img_s64 (32,1024,9,16)
         bev_32 = self.s32transformer(img_vt_s32)  # img_vt_s32(32,512,18,32) bev_32 (32,256,25,5)

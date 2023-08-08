@@ -111,7 +111,7 @@ class NDPushPullLoss(nn.Module):
         margin_dist (float): margin for distance, any distance > this margin will NOT be counted in loss
         ignore_label: val in gt >= this arg, will be ignored.
     """
-
+    # 1.0, 1., 1.0, 5.0, 200
     def __init__(self, var_weight, dist_weight, margin_var, margin_dist, ignore_label):
         super(NDPushPullLoss, self).__init__()#1.0, 1., 1.0, 5.0, 200
         self.var_weight = var_weight

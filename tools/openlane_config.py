@@ -12,7 +12,7 @@ train_image_paths = '/home/houzm/datasets/openlane/images/training'
 val_gt_paths = '/home/houzm/datasets/openlane/lane3d_1000/validation'
 val_image_paths = '/home/houzm/datasets/openlane/images/validation'
 
-model_save_path = "/home/houzm/houzm/02_code/bev_lane_det-cnn/checkpoints/openlane"
+model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/openlane/train/0721"
 
 input_shape = (576,1024)
 output_2d_shape = (144,256)
@@ -24,7 +24,7 @@ meter_per_pixel = 0.5 # grid size
 bev_shape = (int((x_range[1] - x_range[0]) / meter_per_pixel),int((y_range[1] - y_range[0]) / meter_per_pixel))
 
 loader_args = dict(
-    batch_size=64,
+    batch_size=32,
     num_workers=12,
     shuffle=True
 )
@@ -46,11 +46,17 @@ vc_config['vc_image_shape'] = (1920, 1280)
 ''' model '''
 def model():
     return BEV_LaneDet(bev_shape=bev_shape, output_2d_shape=output_2d_shape,train=True)
+load_optimizer = True
 
+resume_scheduler = True
 
 ''' optimizer '''
 epochs = 50
 optimizer = AdamW
+optimizer_params_hg = dict(
+    lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
+    weight_decay=1e-2, amsgrad=False
+)
 optimizer_params = dict(
     lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
     weight_decay=1e-2, amsgrad=False
