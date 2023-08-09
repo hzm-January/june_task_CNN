@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor, nn as nn
 from torch.optim import AdamW
+
 '''
 The code defines three loss functions, namely `PushPullLoss`, `NDPushPullLoss`, and `MSPushPullLoss`, and an evaluation metric `IoULoss`. The `PushPullLoss` is a PyTorch module that computes the embedding loss, which is a combination of variance loss and distance loss. The `NDPushPullLoss` and `MSPushPullLoss` are extensions of `PushPullLoss` to handle multiple instances and multiple scales, respectively. Finally, the `IoULoss` is a PyTorch module that computes the intersection over union (IoU) loss between the predicted outputs and the ground truth targets.
 
@@ -16,6 +17,7 @@ The `IoULoss` class is a PyTorch module that computes the intersection over unio
 
 Finally, the code defines a ResNet18 model and applies the `NDPushPullLoss` to train the model. It generates a random input tensor and computes the predicted output using the ResNet18 model. It then computes the `NDPushPullLoss` between the predicted output and the ground truth target `gt`. It initializes an AdamW optimizer and backpropagates the loss to update the model parameters. It repeats this process until the loss falls below a threshold. Finally, the code applies the `DBSCAN` clustering algorithm to the predicted output to group the instances into clusters.
 '''
+
 
 class PushPullLoss(nn.Module):
     """
@@ -64,7 +66,7 @@ class PushPullLoss(nn.Module):
                 instance_mean = bfeat[instance_mask].mean()
                 instance_means[i] = instance_mean
                 instance_loss = torch.clamp(torch.abs(bfeat[instance_mask] - instance_mean) - self.margin_var,
-                                           min=0.0) ** 2
+                                            min=0.0) ** 2
                 pull_loss.append(instance_loss.mean())
             for i in range(1, C + 1):
                 for j in range(1, C + 1):
@@ -73,7 +75,7 @@ class PushPullLoss(nn.Module):
                     if i not in instance_means or j not in instance_means:
                         continue
                     instance_loss = torch.clamp(2 * self.margin_dist - torch.abs(instance_means[i] - instance_means[j]),
-                                               min=0.0) ** 2
+                                                min=0.0) ** 2
                     push_loss.append(instance_loss)
         if len(pull_loss) > 0:
             pull_loss = torch.cat([item.unsqueeze(0) for item in pull_loss]).mean() * self.var_weight
@@ -111,9 +113,10 @@ class NDPushPullLoss(nn.Module):
         margin_dist (float): margin for distance, any distance > this margin will NOT be counted in loss
         ignore_label: val in gt >= this arg, will be ignored.
     """
+
     # 1.0, 1., 1.0, 5.0, 200
     def __init__(self, var_weight, dist_weight, margin_var, margin_dist, ignore_label):
-        super(NDPushPullLoss, self).__init__()#1.0, 1., 1.0, 5.0, 200
+        super(NDPushPullLoss, self).__init__()  # 1.0, 1., 1.0, 5.0, 200
         self.var_weight = var_weight
         self.dist_weight = dist_weight
         self.margin_var = margin_var
@@ -121,7 +124,7 @@ class NDPushPullLoss(nn.Module):
         self.ignore_label = ignore_label
 
     def forward(self, featmap, gt):
-        assert (featmap.shape[2:] == gt.shape[2:]) # featmap (4,2,144,256) gt (4,1,144,256)
+        assert (featmap.shape[2:] == gt.shape[2:])  # featmap (4,2,144,256) gt (4,1,144,256)
         pull_loss = []
         push_loss = []
         C = gt[gt < self.ignore_label].max().item()
@@ -135,11 +138,14 @@ class NDPushPullLoss(nn.Module):
                 instance_mask = bgt == i  # 每条车道线上的元素都用i表示，取出所有等于i的像素值，都标记为true，其余像素值标记为false，相当于提取一条编号为i的车道线。
                 if instance_mask.sum() == 0:
                     continue  # 如果bgt中所有像素都与i不相等，跳出，提取等于i+1的下一条车道线的像素值
-                pos_featmap = bfeat[:, instance_mask].T.contiguous()  #  mask_num x N 选出所有通道中在instance_mask对应位置为true的所有像素，相当于提取当前车道线的所有标记点的位置信息。
+                pos_featmap = bfeat[:,
+                              instance_mask].T.contiguous()  # mask_num x N 选出所有通道中在instance_mask对应位置为true的所有像素，相当于提取当前车道线的所有标记点的位置信息。
                 instance_center = pos_featmap.mean(dim=0, keepdim=True)  # N x mask_num (mean)-> N x 1
-                instance_centers[i] = instance_center  # instance_mask (200,48) bfeat(2,200,48) bfeat[:, instance_mask] (2,138) pos_featmap (138,2) instance_center(1,2)
+                instance_centers[
+                    i] = instance_center  # instance_mask (200,48) bfeat(2,200,48) bfeat[:, instance_mask] (2,138) pos_featmap (138,2) instance_center(1,2)
                 # TODO xxx
-                instance_loss = torch.clamp(torch.cdist(pos_featmap, instance_center) - self.margin_var, min=0.0)  # instance_loss(138,1)
+                instance_loss = torch.clamp(torch.cdist(pos_featmap, instance_center) - self.margin_var,
+                                            min=0.0)  # instance_loss(138,1)
                 pull_loss.append(instance_loss.mean())
             for i in range(1, int(C) + 1):
                 for j in range(1, int(C) + 1):
@@ -294,8 +300,51 @@ class IoULoss(nn.Module):
         return 1 - num / den
 
 
+class HSL1Loss(nn.Module):
+    def __init__(self, ignore_label):
+        super(HSL1Loss, self).__init__()
+        self.ignore_label = ignore_label
+        self.mse_loss = nn.MSELoss()
+        self.smooth_l1 = nn.SmoothL1Loss(reduction='sum')
+
+    def forward(self, featmap, gt):
+        assert (featmap.shape[1:] == gt.shape[1:])
+        batch_size = featmap.shape[0]
+        C = gt[gt < self.ignore_label].max().item()
+        loss = 0.0
+        for b in range(batch_size):  # featmap.shape[0] is batch size
+            loss_b = 0.0
+            bfeat = featmap[b][0]  # 取出第一张图像预测结果数据
+            bgt = gt[b][0]  # 取出第一张图像的标签
+            # 将两个二维张量展平为一维张量
+            bfeat = bfeat.view(-1)
+            bgt = bgt.view(-1)
+            for i in range(1, int(C) + 1):
+                instance_mask = bgt == i  # 每条车道线上的元素都用i表示，取出所有等于i的像素值，都标记为true，其余像素值标记为false，相当于提取一条编号为i的车道线。
+                if instance_mask.sum() == 0:
+                    continue  # 如果bgt中所有像素都与i不相等，跳出，提取等于i+1的下一条车道线的像素值
+                # pos_mask = bgt[:,
+                #            instance_mask].T.contiguous()  # mask_num x N 选出所有通道中在instance_mask对应位置为true的所有像素，相当于提取当前车道线的所有标记点的位置信息。
+                # 对当前车道线，进行损失计算。
+                loss_b += self.mse_loss(bfeat[instance_mask], bgt[instance_mask])
+            # loss_b /= C
+            loss += loss_b
+        loss /= batch_size
+        return loss
+
+    def forward_bk(self, outputs, targets):
+        # 求targets中不为0元素个数
+        num_nonzero_gt = torch.sum(targets != 0, dtype=torch.float32).item()
+        num_nonzero_gt = 1 if num_nonzero_gt == 0 else num_nonzero_gt
+        # outputs[outputs < 1] = 0.0
+        # 求MSE，reduction='sum'
+        mse_loss = self.smooth_l1(outputs, targets)
+        return mse_loss / num_nonzero_gt
+
+
 if __name__ == '__main__':
     import torchvision as tv
+
     ND = 32
     model = tv.models.resnet18(False)
     model = nn.Sequential(

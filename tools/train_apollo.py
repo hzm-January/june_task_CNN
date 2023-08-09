@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader  # 导入数据加载器
 import torch.nn as nn
 from models.util.load_model import load_checkpoint, resume_training  # 导入加载和恢复模型的函数
 from models.util.save_model import save_model_dp  # 导入保存模型的函数
-from models.loss import IoULoss, NDPushPullLoss  # 导入自定义的损失函数
+from models.loss import IoULoss, NDPushPullLoss, HSL1Loss  # 导入自定义的损失函数
 from utils.config_util import load_config_module  # 导入加载配置文件的函数
 from sklearn.metrics import f1_score  # 导入F1分数计算函数
 import numpy as np
@@ -31,6 +31,7 @@ class Combine_Model_and_Loss(torch.nn.Module):
         self.mse_loss = nn.MSELoss()  # 定义均方误差损失函数
         self.bce_loss = nn.BCELoss()  # 定义二元交叉熵损失函数
         # self.sigmoid = nn.Sigmoid()
+        self.hsl1_loss = HSL1Loss(200)  # 自定义Smooth L1 Loss
 
     # 正向传播函数
     def forward(self, inputs, images_gt, configs, gt_seg=None, gt_instance=None, gt_offset_y=None, gt_z=None,
@@ -75,8 +76,11 @@ class Combine_Model_and_Loss(torch.nn.Module):
             loss_seg_hg = self.bce(pred_2d_h_invs, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_h_invs),
                                                                                      image_gt_segment)
             loss_emb_hg = self.poopoo(emb_2d_h_invs, image_gt_instance)  # 计算2D嵌入向量损失
-            loss_total_hg = 3 * loss_seg_hg + 0.5 * loss_emb_hg  # 计算hg总损失
-            return pred, loss_total, loss_total_2d, loss_offset, loss_z, homograph_matrix, loss_seg_2d, loss_emb_2d, homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg  # 返回预测结果和损失
+            emb_2d_h_invs = emb_2d_h_invs.mean(dim=1, keepdim=True)
+            loss_pixel_hg = self.hsl1_loss(emb_2d_h_invs, image_gt_instance)  # 计算2D嵌入向量损失
+            loss_total_hg = 10 * loss_seg_hg + 10 * loss_emb_hg + loss_pixel_hg  # 计算hg总损失
+            loss_total_hg = loss_total_hg.unsqueeze(0)  # 将2D总损失转换成一维张量
+            return pred, loss_total, loss_total_2d, loss_offset, loss_z, homograph_matrix, loss_seg_2d, loss_emb_2d, homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg  # 返回预测结果和损失
         else:
             return pred  # 返回预测结果
 
@@ -101,7 +105,7 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
         # image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
         prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, hg_matrix, \
             loss_seg_2d, loss_emb_2d, \
-            homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg = model(
+            homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg = model(
             input_data,
             image_gt,
             configs,
@@ -118,9 +122,10 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
         loss_seg_2d = loss_seg_2d.mean()  # 打印用
         loss_emb_2d = loss_emb_2d.mean()  # 打印用
         loss_total_hg = loss_total_hg.mean()
-        loss_seg_hg = loss_seg_hg.mean()
-        loss_emb_hg = loss_emb_hg.mean()
-        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + 2*loss_total_hg  # 计算总损失
+        loss_seg_hg = loss_seg_hg.mean()  # 打印用
+        loss_emb_hg = loss_emb_hg.mean()  # 打印用
+        loss_pixel_hg = loss_pixel_hg.mean()  # 打印用
+        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + loss_total_hg  # 计算总损失
 
         ''' caclute loss '''
         optimizer.zero_grad()  # 清空梯度
@@ -140,13 +145,13 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
             # 2d loss = 3 * loss_seg_2d + 0.5 * loss_emb_2d
             # loss_back_total = 3d loss + 0.5 * 2d loss + loss_offset + loss_z + loss_hg
             print(
-                '| %3d | Hlr: %.10f | Blr: %.10f | 2d+3d: %f | F1: %f |'
-                ' 3d: %f | Offset: %f | Z: %f | 2d: %f | s: %f | e: %f | h: %f | hs: %f | he: %f |' % (
+                '| %3d | Hlr: %.10f | Blr: %.10f | 3d+2d+h: %f | F1: %f |'
+                ' 3d: %f | Offset: %f | Z: %f | 2d: %f | s: %f | e: %f | h: %f | hs: %f | he: %f | hp: %f |' % (
                     idx, scheduler.optimizer.param_groups[0]['lr'], scheduler.optimizer.param_groups[1]['lr'],
                     loss_back_total.item(),
-                    f1_bev_seg, loss_offset.item(), loss_z.item(),
-                    loss_back_bev.item(), loss_back_2d.item(), loss_seg_2d.item(), loss_emb_2d.item(),
-                    loss_total_hg.item(), loss_seg_hg.item(), loss_emb_hg.item()))
+                    f1_bev_seg, loss_back_bev.item(), loss_offset.item(), loss_z.item(),
+                    loss_back_2d.item(), loss_seg_2d.item(), loss_emb_2d.item(),
+                    loss_total_hg.item(), loss_seg_hg.item(), loss_emb_hg.item(), loss_pixel_hg.item()))
             # print('-' * 80)
 
         if idx != 0 and idx % 50 == 0 and len(dataset) - idx < 50:  # idx % 700 == 0
@@ -242,5 +247,5 @@ if __name__ == '__main__':
                     # gpu_id=[5, 6],
                     gpu_id=[4, 5, 6, 7],
                     # gpu_id=[6, 7],
-                    checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0808_diff_lr/ep195.pth'
+                    # checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0808_diff_lr/ep195.pth'
                     )  # 调用worker_function函数，传入配置文件路径和GPU编号

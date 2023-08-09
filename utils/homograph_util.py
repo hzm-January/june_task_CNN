@@ -15,15 +15,15 @@ def homograph(images, images_gt, hg_mtxs, configs):
     images_gt_segment = torch.zeros(batch_size, 1, output_2d_h, output_2d_w).cuda()  # (16,1,144,256)
 
     hg_mtxs_image = kgc.denormalize_homography(hg_mtxs, (img_s32_h, img_s32_w), (img_s32_h, img_s32_w))
-    images_warped = kgt.warp_perspective(images.clone(), hg_mtxs_image, img_vt_s32_hg_shape)
+    images_warped = kgt.warp_perspective(images, hg_mtxs_image, img_vt_s32_hg_shape)
     hg_mtxs_image_gt = kgc.denormalize_homography(hg_mtxs, configs.output_2d_shape, configs.output_2d_shape)
 
     # images = images.permute(0, 3, 1, 2)
     if images_gt is not None:
-        images_gt_warped = images_gt.clone().unsqueeze(1)
+        images_gt_warped = images_gt.unsqueeze(1)
         images_gt_warped = kgt.warp_perspective(images_gt_warped, hg_mtxs_image_gt, configs.output_2d_shape)
-        # images_gt_warped = torch.round(images_gt_warped) #TODO 这里取round会不会吞掉梯度回传
-        images_gt_warped = ste_round(images_gt_warped) #TODO 这里取round会不会吞掉梯度回传
+        images_gt_warped = torch.round(images_gt_warped) #TODO 这里取round会不会吞掉梯度回传
+        # images_gt_warped = ste_round(images_gt_warped) #TODO 这里取round会不会吞掉梯度回传
 
         for i in range(batch_size):
             image_gt = images_gt_warped[i]

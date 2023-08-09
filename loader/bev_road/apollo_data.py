@@ -162,7 +162,7 @@ class Apollo_dataset_with_offset(Dataset):
         name_list = info_dict['raw_file'].split('/')
         image_path = os.path.join(self.dataset_base_dir, 'images', name_list[-2], name_list[-1])
         image = cv2.imread(image_path)
-
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # 修正图片颜色
         # caculate camera parameter
         cam_height, cam_pitch = info_dict['cam_height'], info_dict['cam_pitch']
         project_g2c, camera_k = self.get_camera_matrix(cam_pitch, cam_height)
@@ -205,7 +205,8 @@ class Apollo_dataset_with_offset(Dataset):
         #     sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
         #                          camera_k, project_c2g, image.shape[:2])
         #     trans_matrix = sc.get_matrix(height=0)
-        #     image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
+        #     # image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
+        #     image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
         #     image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
         return image,image_gt,bev_gt,offset_y_map,z_map,project_c2g,camera_k
 
@@ -291,7 +292,7 @@ class Apollo_dataset_with_offset_val(Dataset):
         name_list = info_dict['raw_file'].split('/')
         image_path = os.path.join(self.dataset_base_dir, 'images', name_list[-2], name_list[-1])
         image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # 修正图片颜色
+
         # caculate camera parameter
         cam_height, cam_pitch = info_dict['cam_height'], info_dict['cam_pitch']
         project_g2c, camera_k = self.get_camera_matrix(cam_pitch, cam_height)

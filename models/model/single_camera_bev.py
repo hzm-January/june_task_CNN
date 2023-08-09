@@ -4,6 +4,9 @@ import torchvision as tv
 from torch import nn
 from utils.homograph_util import homograph
 import torch.nn.functional as F
+import kornia.geometry.transform as kgt
+import kornia.geometry.conversions as kgc
+
 
 def naive_init_module(mod):
     for m in mod.modules():
@@ -14,6 +17,8 @@ def naive_init_module(mod):
             nn.init.constant_(m.weight, 1)
             nn.init.constant_(m.bias, 0)
     return mod
+
+
 def hg_mlp_init_module(mod):
     for m in mod.modules():
         if isinstance(m, nn.Conv2d):
@@ -22,6 +27,7 @@ def hg_mlp_init_module(mod):
             nn.init.constant_(m.weight, 1)
             nn.init.constant_(m.bias, 0)
     return mod
+
 
 class InstanceEmbedding_offset_y_z(nn.Module):
     def __init__(self, ci, co=1):
@@ -264,9 +270,11 @@ class FCTransform_(nn.Module):
             ))
 
     def forward(self, x):  # x(32,512,18,32)
-        x = x.view(list(x.size()[:2]) + [self.image_featmap_size[1] * self.image_featmap_size[2], ])  # 这个 B,C,H*W x(32,512,576)
+        x = x.view(list(x.size()[:2]) + [
+            self.image_featmap_size[1] * self.image_featmap_size[2], ])  # 这个 B,C,H*W x(32,512,576)
         bev_view = self.fc_transform(x)  # 拿出一个视角 bev_view(32,512,125)
-        bev_view = bev_view.view(list(bev_view.size()[:2]) + [self.space_featmap_size[1], self.space_featmap_size[2]])  # bev_view(32,512,25,5)
+        bev_view = bev_view.view(list(bev_view.size()[:2]) + [self.space_featmap_size[1],
+                                                              self.space_featmap_size[2]])  # bev_view(32,512,25,5)
         bev_view = self.conv1(bev_view)  # bev_view (32,512,25,5)->(32,256,25,5)
         bev_view = self.residual(bev_view)  # bev_view (32,256,25,5)->(32,256,25,5)
         return bev_view
@@ -288,6 +296,8 @@ class Residual(nn.Module):
 
         out += identity
         return self.relu(out)
+
+
 class HG_MLP(nn.Module):
     def __init__(self):
         super(HG_MLP, self).__init__()
@@ -360,16 +370,62 @@ class HG_MLP(nn.Module):
         hg_mlp_init_module(self.layer5)
         hg_mlp_init_module(self.layer6)
 
-    def forward(self, x):
-        out = self.layer1(x)  # x img(8,3,576,1024) -> out (8,12,288,512)
+    def forward(self, images, images_gt, configs):
+        out = self.layer1(images)  # x img(8,3,576,1024) -> out (8,12,288,512)
         out = self.layer2(out)  # out (8,12,288,512) -> out (8,48,144,256)
         out = self.layer3(out)  # out (8,48,144,256) -> out (8,192,72,128)
         out = self.layer4(out)  # out (8,192,72,128) -> out (8,128,36,64)
         out = self.layer5(out)  # out (8,128,36,64) -> out (8,96,18,32)
         out = self.layer6(out)  # out (8,96,18,32) -> out (8,32,18,32)
-        out = out.contiguous().view(x.size(0), -1)
-        out = self.fc(out)
-        return out  # out(8,8)
+        out = out.contiguous().view(images.size(0), -1)
+        out = self.fc(out)  # out(8,8)
+        img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg_transform(images, images_gt, out, configs)
+        return img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs
+    def ste_round(self, x):
+        return torch.round(x) - x.detach() + x
+
+    def hg_transform(self, images, images_gt, hg_out, configs):
+        # hg_mtx (8,8) -> (8,3,3)
+        hg_mtxs = F.normalize(hg_out, dim=1, p=2, eps=1e-6)  # H^-1
+        hg_mtxs = torch.cat((hg_mtxs, torch.ones(hg_mtxs.shape[0], 1).cuda()), dim=1)
+        hg_mtxs = hg_mtxs.view((hg_mtxs.shape[0], 3, 3))  # hg_mtxs(16,3,3)
+
+        # images(16,3,576,1024) img_s32 (16,512,18,32) images_gt (16,1280,1920) hg_mtxs(16,9)
+        batch_size = images.shape[0]
+        output_2d_h, output_2d_w = configs.output_2d_shape[0], configs.output_2d_shape[1]
+        # input_shape 数据增强的resize尺寸，也是源代码中进入backbone的尺寸。
+        # 处理完homograph之后，图像变换到该尺寸作为后序backbone的输入
+        img_s32_h, img_s32_w, img_s32_c = configs.input_shape[0], configs.input_shape[1], images.shape[1]
+        img_vt_s32_hg_shape = (img_s32_h, img_s32_w)  # (1024,576)
+
+        images_gt_instance = torch.zeros(batch_size, 1, output_2d_h, output_2d_w, requires_grad=True).cuda()  # (16,1,144,256)
+        images_gt_segment = torch.zeros(batch_size, 1, output_2d_h, output_2d_w, requires_grad=True).cuda()  # (16,1,144,256)
+
+        images.requires_grad_()
+        images_gt.requires_grad_()
+
+        hg_mtxs_image = kgc.denormalize_homography(hg_mtxs, (img_s32_h, img_s32_w), (img_s32_h, img_s32_w))
+        images_warped = kgt.warp_perspective(images, hg_mtxs_image, img_vt_s32_hg_shape)
+        hg_mtxs_image_gt = kgc.denormalize_homography(hg_mtxs, configs.output_2d_shape, configs.output_2d_shape)
+
+        # images = images.permute(0, 3, 1, 2)
+        if images_gt is not None:
+            images_gt_warped = images_gt.unsqueeze(1)
+            images_gt_warped = kgt.warp_perspective(images_gt_warped, hg_mtxs_image_gt, configs.output_2d_shape)
+            images_gt_warped = torch.round(images_gt_warped) #TODO 这里取round会不会吞掉梯度回传
+            # images_gt_warped = self.ste_round(images_gt_warped)  # TODO 这里取round会不会吞掉梯度回传
+
+            for i in range(batch_size):
+                image_gt = images_gt_warped[i]
+                ''' 2d gt '''
+                image_gt_instance = torch.clone(image_gt)
+                image_gt_segment = torch.clone(image_gt_instance)  # (1, 144,256)
+                image_gt_segment[image_gt_segment > 0] = 1  # (1, 144,256)
+                images_gt_instance[i], images_gt_segment[i] = image_gt_instance, image_gt_segment
+
+        return images_warped.float(), images_gt_instance.float(), images_gt_segment.float(), hg_mtxs.float()
+
+
 # model
 # ResNet34 骨干网络 (self.bb)，在 ImageNet 上进行预训练。
 # 一个下采样层 (self.down)，用于减小特征图的空间维度。
@@ -406,14 +462,16 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
             self.lane_head_2d = LaneHeadResidual_Instance(output_2d_shape, input_channel=512)
 
     def forward(self, img, img_gt=None, configs=None):  # img (32,3,576,1024)  img_gt (32,1080,1920)
-        hg_mtx = self.hg(img)  # img(8,1080,1920,3) hg_mtx(8,8)
 
-        # hg_mtx (8,8) -> (8,3,3)
-        hg_mtx = F.normalize(hg_mtx, dim=1, p=2, eps=1e-6)  # H^-1
-        hg_mtx = torch.cat((hg_mtx, torch.ones(hg_mtx.shape[0], 1).cuda()), dim=1)
-        hg_mtx = hg_mtx.view((hg_mtx.shape[0], 3, 3))  # hg_mtxs(16,3,3)
+        img_vt, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg(img, img_gt, configs)  # img(8,1080,1920,3) hg_mtx(8,8)
 
-        img_vt, image_gt_instance, image_gt_segment = self.hg_util(img, img_gt, hg_mtx, configs)
+        # hg_mtxs = self.hg(img)  # img(8,1080,1920,3) hg_mtx(8,8)
+        # # hg_mtx (8,8) -> (8,3,3)
+        # hg_mtxs = F.normalize(hg_mtxs, dim=1, p=2, eps=1e-6)  # H^-1
+        # hg_mtxs = torch.cat((hg_mtxs, torch.ones(hg_mtxs.shape[0], 1).cuda()), dim=1)
+        # hg_mtxs = hg_mtxs.view((hg_mtxs.shape[0], 3, 3))  # hg_mtxs(16,3,3)
+        #
+        # img_vt, imgs_gt_inst, imgs_gt_seg = self.hg_util(img, img_gt, hg_mtxs, configs)
 
         img_vt_s32 = self.bb(img_vt)  # img_vt (32,3,576,1024) img_vt_s32 (32,512,18,32)
         img_vt_s64 = self.down(img_vt_s32)  # img_vt_s32 (32,512,18,32) img_s64 (32,1024,9,16)
@@ -421,6 +479,6 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
         bev_64 = self.s64transformer(img_vt_s64)  # img_s64 (32,1024,9,16) bev_64 (32,256,25,5)
         bev = torch.cat([bev_64, bev_32], dim=1)  # bev (8,512,25,5)
         if self.is_train:
-            return image_gt_instance, image_gt_segment, hg_mtx, self.lane_head(bev), self.lane_head_2d(img_vt_s32)
+            return imgs_gt_inst, imgs_gt_seg, hg_mtxs, self.lane_head(bev), self.lane_head_2d(img_vt_s32)
         else:
-            return image_gt_instance, image_gt_segment, hg_mtx, self.lane_head(bev)
+            return imgs_gt_inst, imgs_gt_seg, hg_mtxs, self.lane_head(bev)
