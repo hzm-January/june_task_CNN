@@ -41,7 +41,7 @@ class Apollo_dataset_with_offset(Dataset):
                 info_dict = json.loads(line)
                 self.cnt_list.append(info_dict)
 
-        
+
         ''' virtual camera paramter'''
         self.use_virtual_camera = virtual_camera_config['use_virtual_camera']
         self.vc_intrinsic = virtual_camera_config['vc_intrinsic']
@@ -128,7 +128,7 @@ class Apollo_dataset_with_offset(Dataset):
             res_lane_points_z[idx] = np.array([base_points, z_points])
             res_lane_points_bin[idx] = np.array([base_points_bin, y_points_bin]).astype(np.int)  # 画bin用的
             res_lane_points_set[idx] = np.array([base_points, y_points]).astype(
-                np.int)  
+                np.int)
         offset_map = np.zeros((self.ipm_h, self.ipm_w))
         z_map = np.zeros((self.ipm_h, self.ipm_w))
         ipm_image = np.zeros((self.ipm_h, self.ipm_w))
@@ -201,14 +201,13 @@ class Apollo_dataset_with_offset(Dataset):
         bev_gt,offset_y_map,z_map = self.get_y_offset_and_z(res_points_d)
 
         ''' virtual camera '''
-        # if self.use_virtual_camera:
-        #     sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
-        #                          camera_k, project_c2g, image.shape[:2])
-        #     trans_matrix = sc.get_matrix(height=0)
-        #     # image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
-        #     image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
-        #     image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
-        return image,image_gt,bev_gt,offset_y_map,z_map,project_c2g,camera_k
+        if self.use_virtual_camera:
+            sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
+                                 camera_k, project_c2g, image.shape[:2])
+            trans_matrix = sc.get_matrix(height=0)
+            # image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
+            image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
+        return image, image_gt, bev_gt, offset_y_map, z_map, project_c2g, camera_k, torch.from_numpy(trans_matrix)
 
     # 在__getitem__函数中，返回图像、BEV地图、车道偏移、z值、图像标签等信息。
     def __getitem__(self, idx):
@@ -216,7 +215,7 @@ class Apollo_dataset_with_offset(Dataset):
         :param idx:
         :return:
         '''
-        image, image_gt, bev_gt, offset_y_map, z_map, cam_extrinsics, cam_intrinsic = self.get_seg_offset(idx)
+        image, image_gt, bev_gt, offset_y_map, z_map, cam_extrinsics, cam_intrinsic, trans_matrix = self.get_seg_offset(idx)
         transformed = self.trans_image(image=image)
         image = transformed["image"]
         ''' 2d gt'''  # image_gt(1080,1920) -> (144,256)
@@ -232,7 +231,8 @@ class Apollo_dataset_with_offset(Dataset):
         bev_gt_segment = torch.clone(bev_gt_instance)
         bev_gt_segment[bev_gt_segment > 0] = 1
         # return image, bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float(),image_gt_segment.float(),image_gt_instance.float()
-        return image.float(), image_gt.float(), bev_gt_segment.float(), bev_gt_instance.float(),bev_gt_offset.float(),bev_gt_z.float(),image_gt_segment.float(),image_gt_instance.float()
+        return image.float(), image_gt.float(), bev_gt_segment.float(), bev_gt_instance.float(),\
+            bev_gt_offset.float(), bev_gt_z.float(), image_gt_segment.float(), image_gt_instance.float(), trans_matrix.float()
 
 
     def get_camera_matrix(self,cam_pitch,cam_height):
@@ -260,7 +260,7 @@ class Apollo_dataset_with_offset_val(Dataset):
                  dataset_base_dir,
                  data_trans,
                  virtual_camera_config):
-        
+
         self.cnt_list = []
         json_file_path = data_json_path
         self.dataset_base_dir = dataset_base_dir
@@ -268,7 +268,7 @@ class Apollo_dataset_with_offset_val(Dataset):
             for line in file:
                 info_dict = json.loads(line)
                 self.cnt_list.append(info_dict)
-        
+
 
         ''' virtual camera paramter'''
         self.use_virtual_camera = virtual_camera_config['use_virtual_camera']
@@ -304,13 +304,13 @@ class Apollo_dataset_with_offset_val(Dataset):
         #                          camera_k, project_c2g, image.shape[:2])
         #     trans_matrix = sc.get_matrix(height=0)
         #     image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
-        
+
         transformed = self.trans_image(image=image)
         image = transformed["image"]
         return image,name_list[1:]
-    
 
-    
+
+
     def get_camera_matrix(self,cam_pitch,cam_height):
         proj_g2c = np.array([[1,                             0,                              0,          0],
                             [0, np.cos(np.pi / 2 + cam_pitch), -np.sin(np.pi / 2 + cam_pitch), cam_height],

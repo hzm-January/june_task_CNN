@@ -25,7 +25,7 @@ train_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthe
 test_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthetic_Dataset-master/data_splits/standard/test.json'
 data_base_path = '/home/houzm/datasets/apollo-3d-lane-synthetic/Apollo_Sim_3D_Lane_Release'
 
-model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0808_test/"
+model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0810_standard/"
 
 input_shape = (576, 1024) # height width
 output_2d_shape = (144, 256)
@@ -45,7 +45,7 @@ loader_args = dict(
 ''' virtual camera config '''
 camera_ext_virtual, camera_K_virtual = get_camera_matrix(0.04325083977888603, 1.7860000133514404)  # a random parameter
 vc_config = {}
-vc_config['use_virtual_camera'] = False
+vc_config['use_virtual_camera'] = True
 vc_config['vc_intrinsic'] = camera_K_virtual
 vc_config['vc_extrinsics'] = np.linalg.inv(camera_ext_virtual)
 vc_config['vc_image_shape'] = (1920, 1080)
