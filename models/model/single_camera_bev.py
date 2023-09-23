@@ -360,7 +360,7 @@ class HG_MLP(nn.Module):
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1024, 8),
+            nn.Linear(1024, 2),
             # nn.Tanh()
         )
         hg_mlp_init_module(self.layer1)
@@ -380,17 +380,20 @@ class HG_MLP(nn.Module):
         out = out.contiguous().view(images.size(0), -1)
         out = self.fc(out)  # out(8,8)
         # img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg_transform(images, images_gt, out, configs)
-        # trans_matrix_gt = torch.tensor(
-        #     [1.00068778e+00, 2.23062386e-20, 6.60278320e-01, 3.67842412e-16, 1.00068795e+00, 4.26676470e+01,
-        #      4.27762242e-19, 0.00000000e+00]).cuda()
+        # [1.00068778e+00, 2.23062386e-20, 6.60278320e-01, 3.67842412e-16, 1.00068795e+00, 4.26676470e+01,
+        #  4.27762242e-19, 0.00000000e+00]
+        tmp = torch.zeros((images.shape[0], 9), requires_grad=True).cuda()
+        H_indices = torch.tensor([[2, 5]]).expand(images.shape[0], 2).cuda()
+        tmp.scatter_(dim=1, index=H_indices, src=out)
+        trans_matrix_gt = torch.tensor([[1.0, 0.0, 1.0, 0.0, 1.0, 10.0, 0.0, 0.0, 1.0]], requires_grad=True).cuda()
         # out = torch.zeros((8, 8),dtype=torch.float32).cuda()
-        # out += trans_matrix_gt
-        img_warped, hg_mtxs = self.hg_transform(images, out, configs)
+        h_matrix = tmp + trans_matrix_gt
+        img_warped, hg_mtxs = self.hg_transform(images, h_matrix, configs)
         return img_warped, hg_mtxs
 
     def hg_transform(self, images, hg_mtxs, configs):
         # hg_mtx (8,8) -> (8,3,3)
-        hg_mtxs = torch.cat((hg_mtxs, torch.ones(hg_mtxs.shape[0], 1).cuda()), dim=1)
+        # hg_mtxs = torch.cat((hg_mtxs, torch.ones(hg_mtxs.shape[0], 1).cuda()), dim=1)
         hg_mtxs = hg_mtxs.view((hg_mtxs.shape[0], 3, 3))  # hg_mtxs(16,3,3)
 
         # images(16,3,576,1024) img_s32 (16,512,18,32) images_gt (16,1280,1920) hg_mtxs(16,9)
