@@ -25,7 +25,7 @@ train_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthe
 test_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthetic_Dataset-master/data_splits/standard/test.json'
 data_base_path = '/home/houzm/datasets/apollo-3d-lane-synthetic/Apollo_Sim_3D_Lane_Release'
 
-model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0923_standard/"
+model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0927_standard/"
 
 input_shape = (576, 1024) # height width
 output_2d_shape = (144, 256)
@@ -62,10 +62,10 @@ def model():
 
 
 ''' optimizer '''
-epochs = 200
+epochs = 100
 optimizer = AdamW
 optimizer_params_hg = dict(
-    lr=1e-2, betas=(0.9, 0.999), eps=1e-8,
+    lr=1e-3, betas=(0.9, 0.999), eps=1e-8,
     weight_decay=1e-2, amsgrad=False
 )
 optimizer_params = dict(

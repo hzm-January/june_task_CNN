@@ -17,7 +17,7 @@ import os
 import kornia.geometry.transform as kgt
 import torch.nn.functional as F
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "4,5"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
 
 
 # 定义一个继承自nn.Module的类，将模型和损失函数组合在一起
@@ -31,7 +31,7 @@ class Combine_Model_and_Loss(torch.nn.Module):
         self.mse_loss = nn.MSELoss()  # 定义均方误差损失函数
         self.bce_loss = nn.BCELoss()  # 定义二元交叉熵损失函数
         # self.sigmoid = nn.Sigmoid()
-        # self.hsl1_loss = HSL1Loss(200)  # 自定义Smooth L1 Loss
+        self.hsl1_loss = HSL1Loss(200)  # 自定义Smooth L1 Loss
         self.photometric_loss = PhotometricLoss()
         self.sl1_loss = nn.SmoothL1Loss()
 
@@ -40,13 +40,12 @@ class Combine_Model_and_Loss(torch.nn.Module):
                 image_gt_segment=None,
                 image_gt_instance=None, trans_matrix=None, train=True):
         # images_gt current camera 图像像素坐标系，尺寸与image相同，图片中只有车道线的信息，不同车道线不同颜色，
-        res = self.model(inputs, configs)  # 调用模型进行预测
-        # image_gt_instance_h = res[0]
-        # image_gt_segment_h = res[1]
-        images_vt = res[0]
-        homograph_matrix = res[1]
-        pred, emb, offset_y, z = res[2]
-        pred_2d, emb_2d = res[3]
+        res = self.model(inputs, images_gt.clone(), configs)  # 调用模型进行预测
+        image_gt_instance_h = res[0]
+        image_gt_segment_h = res[1]
+        homograph_matrix = res[2]
+        pred, emb, offset_y, z = res[3]
+        pred_2d, emb_2d = res[4]
         if train:
             ## 3d pred(8,1,200,48) gt_seg(8,1,200,48) gt_instance(8,1,200,48) emb(8,1,200,48)
             loss_seg = self.bce(pred, gt_seg) + self.iou_loss(torch.sigmoid(pred), gt_seg)  # 计算BEV分割损失和IoU损失
@@ -62,27 +61,31 @@ class Combine_Model_and_Loss(torch.nn.Module):
             # image_gt_segment_h(8,1,144,256) 与image_gt_instance唯一的不同是没有不同车道线的标注，只有0 1值，标注像素点是否是车道线。
             # pred_2d (8,1,144,256) float32
             # emb_2d (8,2,144,256)
-            trans_matrix_inverse = torch.inverse(homograph_matrix)
-            pred_2d_inverse = kgt.warp_perspective(pred_2d, trans_matrix_inverse, configs.output_2d_shape)
-            emb_2d_inverse = kgt.warp_perspective(emb_2d, trans_matrix_inverse, configs.output_2d_shape)
-
-            loss_seg_2d = self.bce(pred_2d_inverse, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_inverse),
-                                                                              image_gt_segment)  # 计算2D分割损失和IoU损失
-            loss_emb_2d = self.poopoo(emb_2d_inverse, image_gt_instance)  # 计算2D嵌入向量损失
+            loss_seg_2d = self.bce(pred_2d, image_gt_segment_h) + self.iou_loss(torch.sigmoid(pred_2d),
+                                                                                image_gt_segment_h)  # 计算2D分割损失和IoU损失
+            loss_emb_2d = self.poopoo(emb_2d, image_gt_instance_h)  # 计算2D嵌入向量损失
             loss_total_2d = 3 * loss_seg_2d + 0.5 * loss_emb_2d  # 计算2D总损失
             loss_total_2d = loss_total_2d.unsqueeze(0)  # 将2D总损失转换成一维张量
             # 计算H损失
+            # 将Virtual Image上prediction labels用H的逆矩阵变换回Image源图 pred_2d(8,1,144,256)
+            homograph_matrix_inv = torch.inverse(homograph_matrix)
+            homograph_matrix_inv = F.normalize(homograph_matrix_inv, dim=(1, 2), p=2, eps=1e-6)  # H^-1
+            homograph_matrix_inv = kgc.denormalize_homography(homograph_matrix_inv,
+                                                              (pred_2d.shape[2], pred_2d.shape[3]),
+                                                              (pred_2d.shape[2], pred_2d.shape[3]))
+            pred_2d_h_invs = kgt.warp_perspective(pred_2d, homograph_matrix_inv, configs.output_2d_shape)
+            emb_2d_h_invs = kgt.warp_perspective(emb_2d, homograph_matrix_inv, configs.output_2d_shape)
+            loss_seg_hg = self.bce(pred_2d_h_invs, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_h_invs),
+                                                                                     image_gt_segment)
+            loss_emb_hg = self.poopoo(emb_2d_h_invs, image_gt_instance)  # 计算2D嵌入向量损失
+            emb_2d_h_invs = emb_2d_h_invs.mean(dim=1, keepdim=True)
+            loss_pixel_hg = self.hsl1_loss(emb_2d_h_invs, image_gt_instance)  # 计算2D嵌入向量损失
+            loss_total_hg = 10 * loss_seg_hg + 10 * loss_emb_hg + loss_pixel_hg  # 计算hg总损失
+            loss_total_hg = loss_total_hg.unsqueeze(0)  # 将2D总损失转换成一维张量
 
-            images_vt_inverse = kgt.warp_perspective(images_vt, trans_matrix_inverse, configs.output_2d_shape)
-
-            # loss_h_p = 30 * self.photometric_loss(images_vt_inverse, inputs) # RGB图像损失
-            # loss_h_p = loss_h_p.unsqueeze(0)
-            loss_h_x = 2 * self.sl1_loss(homograph_matrix, trans_matrix)
-            loss_h_x = loss_h_x.unsqueeze(0)
-            # loss_h = loss_h_x
-            # loss_h = loss_h.unsqueeze(0)
-            # 返回预测结果和损失
-            return pred, loss_total, loss_total_2d, loss_offset, loss_z, homograph_matrix, loss_seg_2d, loss_emb_2d, loss_h_x
+            # loss_h_x = 2 * self.sl1_loss(homograph_matrix, trans_matrix)
+            # loss_h_x = loss_h_x.unsqueeze(0)
+            return pred, loss_total, loss_total_2d, loss_offset, loss_z, homograph_matrix, loss_seg_2d, loss_emb_2d, homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg # 返回预测结果和损失
         else:
             return pred  # 返回预测结果
 
@@ -106,7 +109,8 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
         # image_gt_segment = image_gt_segment.cuda() # 将2D分割标签转移到GPU上
         # image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
         prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, hg_matrix, \
-            loss_seg_2d, loss_emb_2d, loss_h_x = model(
+            loss_seg_2d, loss_emb_2d, \
+            homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg = model(
             input_data,
             image_gt,
             configs,
@@ -122,10 +126,12 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
         loss_z = loss_z.mean()  # 计算高度损失的平均值
         loss_seg_2d = loss_seg_2d.mean()  # 打印用
         loss_emb_2d = loss_emb_2d.mean()  # 打印用
-        # loss_h = loss_h.mean()
-        # loss_h_p = loss_h_p.mean()  # 打印用
-        loss_h_x = loss_h_x.mean()  # 打印用
-        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + loss_h_x  # 计算总损失
+        loss_total_hg = loss_total_hg.mean()
+        loss_seg_hg = loss_seg_hg.mean()  # 打印用
+        loss_emb_hg = loss_emb_hg.mean()  # 打印用
+        loss_pixel_hg = loss_pixel_hg.mean()  # 打印用
+        # loss_h_x = loss_h_x.mean()
+        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + loss_total_hg # 计算总损失
 
         ''' caclute loss '''
         optimizer.zero_grad()  # 清空梯度
@@ -146,18 +152,23 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
             # loss_back_total = 3d loss + 0.5 * 2d loss + loss_offset + loss_z + loss_hg
             print(
                 '| %3d | Hlr: %.10f | Blr: %.10f | 3d+2d+h: %f | F1: %f |'
-                ' 3d: %f | Offset: %f | Z: %f | 2d: %f | s: %f | e: %f | hx: %f |' % (
+                ' 3d: %f | Offset: %f | Z: %f | 2d: %f | s: %f | e: %f | h: %f | hs: %f | he: %f | hp: %f |' % (
                     idx, scheduler.optimizer.param_groups[0]['lr'], scheduler.optimizer.param_groups[1]['lr'],
                     loss_back_total.item(),
                     f1_bev_seg, loss_back_bev.item(), loss_offset.item(), loss_z.item(),
                     loss_back_2d.item(), loss_seg_2d.item(), loss_emb_2d.item(),
-                    loss_h_x.item()))
+                    loss_total_hg.item(), loss_seg_hg.item(), loss_emb_hg.item(), loss_pixel_hg.item()))
             # print('-' * 80)
 
         if idx != 0 and idx % 50 == 0 and len(dataset) - idx < 50:  # idx % 700 == 0
-            print('nh: ', [i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # 原始matrix
-            # trans_matrix_inverse = torch.inverse(hg_matrix[0])
-            print('h: ', [i for i in trans_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])
+            # print([i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])
+            print('hm__: ', [i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # 原始matrix
+            hg_mtxs_image = kgc.denormalize_homography(hg_matrix, configs.input_shape, configs.input_shape)
+            hg_mtxs_image_gt = kgc.denormalize_homography(hg_matrix, configs.output_2d_shape, configs.output_2d_shape)
+            print('hm_m: ',
+                  [i for i in hg_mtxs_image[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # image_denormal
+            print('hm_t: ',
+                  [i for i in hg_mtxs_image_gt[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # image_gt_denormal
 
 
 # worker_fuction  加载配置文件
@@ -240,7 +251,8 @@ if __name__ == '__main__':
     worker_function('/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py',
                     # gpu_id=[2, 3],
                     # gpu_id=[5, 6],
-                    gpu_id=[4, 5],
+                    gpu_id=[0, 1],
                     # gpu_id=[6, 7],
                     # checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0808_diff_lr/ep195.pth'
+                    # checkpoint_path='/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0713_normal8_denormal_pre8_resnet34/ep100.pth'
                     )  # 调用worker_function函数，传入配置文件路径和GPU编号

@@ -1,5 +1,5 @@
 import os
-gpu_id = [7]
+gpu_id = [0]
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["CUDA_VISIBLE_DEVICES"] = ','.join([str(i) for i in gpu_id])
 import sys
@@ -18,7 +18,7 @@ from utils.util_val.val_offical import LaneEval
 from models.model.single_camera_bev import *
 
 
-model_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0802_rare/ep100.pth' #model path of verification
+model_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0713_normal8_denormal_pre8_resnet34/ep100.pth' #model path of verification
 
 ''' parameter from config '''
 config_file = '/home/houzm/houzm/02_code/bev_lane_det-cnn/tools/apollo_config.py'
@@ -33,7 +33,7 @@ meter_per_pixel = configs.meter_per_pixel
 post_conf = 0.9 # Minimum confidence on the segmentation map for clustering
 post_emb_margin = 6.0 # embeding margin of different clusters
 post_min_cluster_size = 15 # The minimum number of points in a cluster
-tmp_save_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/validate/0802_rare/ep100' #tmp path for save intermediate result
+tmp_save_path = '/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/validate/0713_normal8_denormal_pre8_resnet34/ep100' #tmp path for save intermediate result
 
 class PostProcessDataset(Dataset):
     def __init__(self, model_res_save_path, postprocess_save_path,test_json_paths):
