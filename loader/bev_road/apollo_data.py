@@ -199,14 +199,14 @@ class Apollo_dataset_with_offset(Dataset):
             res_points_d[lane_idx+1] = res_points
 
         bev_gt,offset_y_map,z_map = self.get_y_offset_and_z(res_points_d)
-
+        trans_matrix = []
         ''' virtual camera '''
         if self.use_virtual_camera:
             sc = Standard_camera(self.vc_intrinsic, self.vc_extrinsics, (self.vc_image_shape[1],self.vc_image_shape[0]),
                                  camera_k, project_c2g, image.shape[:2])
             trans_matrix = sc.get_matrix(height=0)
             # image = cv2.warpPerspective(image, trans_matrix, self.vc_image_shape)
-            image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
+            # image_gt = cv2.warpPerspective(image_gt, trans_matrix, self.vc_image_shape)
         return image, image_gt, bev_gt, offset_y_map, z_map, project_c2g, camera_k, torch.from_numpy(trans_matrix)
 
     # 在__getitem__函数中，返回图像、BEV地图、车道偏移、z值、图像标签等信息。
