@@ -69,10 +69,10 @@ class Combine_Model_and_Loss(torch.nn.Module):
             # 计算H损失
             # 将Virtual Image上prediction labels用H的逆矩阵变换回Image源图 pred_2d(8,1,144,256)
             homograph_matrix_inv = torch.inverse(homograph_matrix)
-            homograph_matrix_inv = F.normalize(homograph_matrix_inv, dim=(1, 2), p=2, eps=1e-6)  # H^-1
-            homograph_matrix_inv = kgc.denormalize_homography(homograph_matrix_inv,
-                                                              (pred_2d.shape[2], pred_2d.shape[3]),
-                                                              (pred_2d.shape[2], pred_2d.shape[3]))
+            # homograph_matrix_inv = F.normalize(homograph_matrix_inv, dim=(1, 2), p=2, eps=1e-6)  # H^-1
+            # homograph_matrix_inv = kgc.denormalize_homography(homograph_matrix_inv,
+            #                                                   (pred_2d.shape[2], pred_2d.shape[3]),
+            #                                                   (pred_2d.shape[2], pred_2d.shape[3]))
             pred_2d_h_invs = kgt.warp_perspective(pred_2d, homograph_matrix_inv, configs.output_2d_shape)
             emb_2d_h_invs = kgt.warp_perspective(emb_2d, homograph_matrix_inv, configs.output_2d_shape)
             loss_seg_hg = self.bce(pred_2d_h_invs, image_gt_segment) + self.iou_loss(torch.sigmoid(pred_2d_h_invs),
@@ -83,9 +83,13 @@ class Combine_Model_and_Loss(torch.nn.Module):
             loss_total_hg = 10 * loss_seg_hg + 10 * loss_emb_hg + loss_pixel_hg  # 计算hg总损失
             loss_total_hg = loss_total_hg.unsqueeze(0)  # 将2D总损失转换成一维张量
 
-            # loss_h_x = 2 * self.sl1_loss(homograph_matrix, trans_matrix)
-            # loss_h_x = loss_h_x.unsqueeze(0)
-            return pred, loss_total, loss_total_2d, loss_offset, loss_z, homograph_matrix, loss_seg_2d, loss_emb_2d, homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg # 返回预测结果和损失
+            mask = torch.tensor([[True, False, True],
+                                 [False, True, True],
+                                 [False, False, False]]).repeat(inputs.shape[0], 1, 1)
+
+            loss_h_x = 2 * self.sl1_loss(homograph_matrix[mask], trans_matrix[mask])
+            loss_h_x = loss_h_x.unsqueeze(0)
+            return pred, loss_total, loss_total_2d, loss_offset, loss_z, homograph_matrix, loss_seg_2d, loss_emb_2d, homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg, loss_h_x # 返回预测结果和损失
         else:
             return pred  # 返回预测结果
 
@@ -110,7 +114,7 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
         # image_gt_instance = image_gt_instance.cuda() # 将2D嵌入向量标签转移到GPU上
         prediction, loss_total_bev, loss_total_2d, loss_offset, loss_z, hg_matrix, \
             loss_seg_2d, loss_emb_2d, \
-            homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg = model(
+            homograph_matrix_inv, loss_total_hg, loss_seg_hg, loss_emb_hg, loss_pixel_hg, loss_h_x = model(
             input_data,
             image_gt,
             configs,
@@ -130,8 +134,8 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
         loss_seg_hg = loss_seg_hg.mean()  # 打印用
         loss_emb_hg = loss_emb_hg.mean()  # 打印用
         loss_pixel_hg = loss_pixel_hg.mean()  # 打印用
-        # loss_h_x = loss_h_x.mean()
-        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + loss_total_hg # 计算总损失
+        loss_h_x = loss_h_x.mean()
+        loss_back_total = loss_back_bev + 0.5 * loss_back_2d + loss_offset + loss_z + loss_total_hg + loss_h_x # 计算总损失
 
         ''' caclute loss '''
         optimizer.zero_grad()  # 清空梯度
@@ -152,23 +156,19 @@ def train_epoch(model, dataset, optimizer, scheduler, configs, epoch):
             # loss_back_total = 3d loss + 0.5 * 2d loss + loss_offset + loss_z + loss_hg
             print(
                 '| %3d | Hlr: %.10f | Blr: %.10f | 3d+2d+h: %f | F1: %f |'
-                ' 3d: %f | Offset: %f | Z: %f | 2d: %f | s: %f | e: %f | h: %f | hs: %f | he: %f | hp: %f |' % (
+                ' 3d: %f | Offset: %f | Z: %f | 2d: %f | s: %f | e: %f | h: %f | hs: %f | he: %f | hp: %f | hm: %f |' % (
                     idx, scheduler.optimizer.param_groups[0]['lr'], scheduler.optimizer.param_groups[1]['lr'],
                     loss_back_total.item(),
                     f1_bev_seg, loss_back_bev.item(), loss_offset.item(), loss_z.item(),
                     loss_back_2d.item(), loss_seg_2d.item(), loss_emb_2d.item(),
-                    loss_total_hg.item(), loss_seg_hg.item(), loss_emb_hg.item(), loss_pixel_hg.item()))
+                    loss_total_hg.item(), loss_seg_hg.item(), loss_emb_hg.item(), loss_pixel_hg.item(), loss_h_x.item()))
             # print('-' * 80)
 
         if idx != 0 and idx % 50 == 0 and len(dataset) - idx < 50:  # idx % 700 == 0
             # print([i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])
+            print('h__: ', [i for i in trans_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # 原始matrix
             print('hm__: ', [i for i in hg_matrix[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # 原始matrix
-            hg_mtxs_image = kgc.denormalize_homography(hg_matrix, configs.input_shape, configs.input_shape)
-            hg_mtxs_image_gt = kgc.denormalize_homography(hg_matrix, configs.output_2d_shape, configs.output_2d_shape)
-            print('hm_m: ',
-                  [i for i in hg_mtxs_image[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # image_denormal
-            print('hm_t: ',
-                  [i for i in hg_mtxs_image_gt[0].view(1, 9).squeeze(0).detach().cpu().numpy()])  # image_gt_denormal
+
 
 
 # worker_fuction  加载配置文件

@@ -25,7 +25,7 @@ train_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthe
 test_json_paths = '/home/houzm/datasets/apollo-3d-lane-synthetic/3D_Lane_Synthetic_Dataset-master/data_splits/standard/test.json'
 data_base_path = '/home/houzm/datasets/apollo-3d-lane-synthetic/Apollo_Sim_3D_Lane_Release'
 
-model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0927_standard/"
+model_save_path = "/home/houzm/houzm/03_model/bev_lane_det-cnn/apollo/train/0928_standard/"
 
 input_shape = (576, 1024) # height width
 output_2d_shape = (144, 256)

@@ -360,7 +360,7 @@ class HG_MLP(nn.Module):
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1024, 8),
+            nn.Linear(1024, 4),
             # nn.Tanh()
         )
         hg_mlp_init_module(self.layer1)
@@ -379,16 +379,24 @@ class HG_MLP(nn.Module):
         out = self.layer6(out)  # out (8,96,18,32) -> out (8,32,18,32)
         out = out.contiguous().view(images.size(0), -1)
         out = self.fc(out)  # out(8,8)
-        img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg_transform(images, images_gt, out, configs)
+        tmp = torch.zeros((images.shape[0], 9), requires_grad=True).cuda()
+        H_indices = torch.tensor([[0, 2, 4, 5]]).expand(images.shape[0], 4).cuda()
+        tmp.scatter_(dim=1, index=H_indices, src=out)
+        trans_matrix_gt = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]], requires_grad=True).cuda()
+        # out = torch.zeros((8, 8),dtype=torch.float32).cuda()
+        h_matrix = tmp + trans_matrix_gt
+
+        img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg_transform(images, images_gt, h_matrix, configs)
         return img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs
     def ste_round(self, x):
         return torch.round(x) - x.detach() + x
 
-    def hg_transform(self, images, images_gt, hg_out, configs):
+    def hg_transform(self, images, images_gt, hg_mtxs, configs):
         # hg_mtx (8,8) -> (8,3,3)
-        hg_mtxs = F.normalize(hg_out, dim=1, p=2, eps=1e-6)  # H^-1
-        hg_mtxs = torch.cat((hg_mtxs, torch.ones(hg_mtxs.shape[0], 1).cuda()), dim=1)
+        # hg_mtxs = F.normalize(hg_out, dim=1, p=2, eps=1e-6)  # H^-1
+        # hg_mtxs = torch.cat((hg_mtxs, torch.ones(hg_mtxs.shape[0], 1).cuda()), dim=1)
         hg_mtxs = hg_mtxs.view((hg_mtxs.shape[0], 3, 3))  # hg_mtxs(16,3,3)
+
 
         # images(16,3,576,1024) img_s32 (16,512,18,32) images_gt (16,1280,1920) hg_mtxs(16,9)
         batch_size = images.shape[0]
@@ -403,15 +411,15 @@ class HG_MLP(nn.Module):
 
         images.requires_grad_()
 
-        hg_mtxs_image = kgc.denormalize_homography(hg_mtxs, (img_s32_h, img_s32_w), (img_s32_h, img_s32_w))
-        images_warped = kgt.warp_perspective(images, hg_mtxs_image, img_vt_s32_hg_shape)
-        hg_mtxs_image_gt = kgc.denormalize_homography(hg_mtxs, configs.output_2d_shape, configs.output_2d_shape)
+        # hg_mtxs_image = kgc.denormalize_homography(hg_mtxs, (img_s32_h, img_s32_w), (img_s32_h, img_s32_w))
+        images_warped = kgt.warp_perspective(images, hg_mtxs, img_vt_s32_hg_shape)
+        # hg_mtxs_image_gt = kgc.denormalize_homography(hg_mtxs, configs.output_2d_shape, configs.output_2d_shape)
 
         # images = images.permute(0, 3, 1, 2)
         if images_gt is not None:
             images_gt.requires_grad_()
             images_gt_warped = images_gt.unsqueeze(1)
-            images_gt_warped = kgt.warp_perspective(images_gt_warped, hg_mtxs_image_gt, configs.output_2d_shape)
+            images_gt_warped = kgt.warp_perspective(images_gt_warped, hg_mtxs, configs.output_2d_shape)
             images_gt_warped = torch.round(images_gt_warped) #TODO 这里取round会不会吞掉梯度回传
             # images_gt_warped = self.ste_round(images_gt_warped)  # TODO 这里取round会不会吞掉梯度回传
 
