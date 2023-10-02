@@ -360,7 +360,7 @@ class HG_MLP(nn.Module):
             nn.BatchNorm1d(1024),
             nn.ReLU(),
             nn.Dropout(0.5),
-            nn.Linear(1024, 4),
+            nn.Linear(1024, 8),
             # nn.Tanh()
         )
         hg_mlp_init_module(self.layer1)
@@ -379,24 +379,17 @@ class HG_MLP(nn.Module):
         out = self.layer6(out)  # out (8,96,18,32) -> out (8,32,18,32)
         out = out.contiguous().view(images.size(0), -1)
         out = self.fc(out)  # out(8,8)
-        tmp = torch.zeros((images.shape[0], 9), requires_grad=True).cuda()
-        H_indices = torch.tensor([[0, 2, 4, 5]]).expand(images.shape[0], 4).cuda()
-        tmp.scatter_(dim=1, index=H_indices, src=out)
-        trans_matrix_gt = torch.tensor([[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]], requires_grad=True).cuda()
-        # out = torch.zeros((8, 8),dtype=torch.float32).cuda()
-        h_matrix = tmp + trans_matrix_gt
-
-        img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg_transform(images, images_gt, h_matrix, configs)
-        return img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs
+        img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg_transform(images, images_gt, out, configs)
+        return img_warped, imgs_gt_inst, imgs_gt_seg, hg_mtxs, out
     def ste_round(self, x):
         return torch.round(x) - x.detach() + x
 
-    def hg_transform(self, images, images_gt, hg_mtxs, configs):
+    def hg_transform(self, images, images_gt, hg_out, configs):
         # hg_mtx (8,8) -> (8,3,3)
-        # hg_mtxs = F.normalize(hg_out, dim=1, p=2, eps=1e-6)  # H^-1
-        # hg_mtxs = torch.cat((hg_mtxs, torch.ones(hg_mtxs.shape[0], 1).cuda()), dim=1)
+        # hg_out[:, [0, 4]] = hg_out[:, [0, 4]].abs_() # 保证h1和h5为正，但是发现gt中也有很多情况h1或h5为负数的情况，所以注释了。
+        # hg_mtxs_n = F.normalize(hg_out, dim=1, p=2, eps=1e-6)  # H^-1
+        hg_mtxs = torch.cat((hg_out, torch.ones(hg_out.shape[0], 1).cuda()), dim=1)
         hg_mtxs = hg_mtxs.view((hg_mtxs.shape[0], 3, 3))  # hg_mtxs(16,3,3)
-
 
         # images(16,3,576,1024) img_s32 (16,512,18,32) images_gt (16,1280,1920) hg_mtxs(16,9)
         batch_size = images.shape[0]
@@ -471,7 +464,7 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
 
     def forward(self, img, img_gt=None, configs=None):  # img (32,3,576,1024)  img_gt (32,1080,1920)
 
-        img_vt, imgs_gt_inst, imgs_gt_seg, hg_mtxs = self.hg(img, img_gt, configs)  # img(8,1080,1920,3) hg_mtx(8,8)
+        img_vt, imgs_gt_inst, imgs_gt_seg, hg_mtxs, hg_mtxs_n = self.hg(img, img_gt, configs)  # img(8,1080,1920,3) hg_mtx(8,8)
 
         # hg_mtxs = self.hg(img)  # img(8,1080,1920,3) hg_mtx(8,8)
         # # hg_mtx (8,8) -> (8,3,3)
@@ -487,6 +480,6 @@ class BEV_LaneDet(nn.Module):  # BEV-LaneDet
         bev_64 = self.s64transformer(img_vt_s64)  # img_s64 (32,1024,9,16) bev_64 (32,256,25,5)
         bev = torch.cat([bev_64, bev_32], dim=1)  # bev (8,512,25,5)
         if self.is_train:
-            return imgs_gt_inst, imgs_gt_seg, hg_mtxs, self.lane_head(bev), self.lane_head_2d(img_vt_s32)
+            return imgs_gt_inst, imgs_gt_seg, hg_mtxs, hg_mtxs_n, self.lane_head(bev), self.lane_head_2d(img_vt_s32)
         else:
-            return imgs_gt_inst, imgs_gt_seg, hg_mtxs, self.lane_head(bev)
+            return imgs_gt_inst, imgs_gt_seg, hg_mtxs, hg_mtxs_n, self.lane_head(bev)

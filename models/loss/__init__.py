@@ -394,6 +394,19 @@ class PhotometricLoss(nn.Module):
             reprojection_loss = 0.85 * ssim_loss + 0.15 * l1_loss
         return reprojection_loss
 
+class RelativeErrorLoss(nn.Module):
+    def __init__(self, eps=1e-20):
+        super(RelativeErrorLoss, self).__init__()
+        self.eps = eps
+
+    def forward(self, y_pred, y_true):
+        y_pred_, y_true_ = y_pred.float(), y_true.float()
+        absolute_error = torch.abs(y_pred_ - y_true_).float().cuda()
+        max_value = torch.where(y_true_ == 0, torch.tensor(self.eps, dtype=torch.float).cuda(), torch.abs(y_true_))
+        relative_error = absolute_error / max_value
+        relative_error = torch.where(relative_error > 500, torch.tensor(500.0).cuda(), relative_error)
+        loss = torch.mean(relative_error)
+        return loss
 
 if __name__ == '__main__':
     import torchvision as tv
